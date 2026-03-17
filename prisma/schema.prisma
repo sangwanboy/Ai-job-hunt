@@ -1,0 +1,639 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkMode {
+  REMOTE
+  HYBRID
+  ONSITE
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  FREELANCE
+}
+
+enum Seniority {
+  INTERN
+  JUNIOR
+  MID
+  SENIOR
+  STAFF
+  LEAD
+  PRINCIPAL
+}
+
+enum ApplicationStatus {
+  NEW
+  SAVED
+  APPLIED
+  INTERVIEW
+  OFFER
+  REJECTED
+  ARCHIVED
+}
+
+enum OutreachStatus {
+  NONE
+  DRAFTED
+  SENT
+  REPLIED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FollowUpStatus {
+  PENDING
+  DONE
+  SNOOZED
+  CANCELLED
+}
+
+enum MessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AiProvider {
+  OPENAI
+  ANTHROPIC
+  GEMINI
+}
+
+enum MemoryKind {
+  SHORT_TERM
+  WORKING
+  SESSION
+  LONG_TERM
+  STRUCTURED
+  SUMMARY
+}
+
+model User {
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  name                String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  preferences         UserPreference?
+  resumes             Resume[]
+  jobs                Job[]
+  recruiters          Recruiter[]
+  integrations        IntegrationAccount[]
+  imports             ImportBatch[]
+  activities          ActivityLog[]
+  snapshots           DashboardSnapshot[]
+  agents              Agent[]
+  chatSessions        ChatSession[]
+  followUpTasks       FollowUpTask[]
+  outreachMessages    OutreachMessage[]
+}
+
+model UserPreference {
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  preferredLocations     String[]  @default([])
+  preferredWorkModes     WorkMode[]
+  preferredSeniority     Seniority[]
+  preferredTone          String?
+  preferredCommunication String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Resume {
+  id              String   @id @default(cuid())
+  userId          String
+  version         String
+  fileName        String
+  contentRaw      String?
+  extractedJson   Json?
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isDefault])
+}
+
+model Company {
+  id              String   @id @default(cuid())
+  name            String
+  website         String?
+  country         String?
+  industry        String?
+  sizeBand        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  jobs            Job[]
+  recruiters      Recruiter[]
+
+  @@unique([name, website])
+}
+
+model Recruiter {
+  id              String            @id @default(cuid())
+  userId          String
+  companyId       String?
+  fullName        String
+  email           String?
+  linkedinUrl     String?
+  notes           String?
+  relationship    String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  jobs            Job[]
+  outreach        OutreachMessage[]
+  followUpTasks   FollowUpTask[]
+
+  @@index([userId, fullName])
+}
+
+model JobSource {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  label           String
+  adapterType     String
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  jobs            Job[]
+}
+
+model Job {
+  id                String             @id @default(cuid())
+  userId            String
+  sourceId          String?
+  source            String
+  sourceUrl         String?
+  externalId        String?
+  title             String
+  companyId         String?
+  recruiterId       String?
+  location          String?
+  country           String?
+  workMode          WorkMode?
+  salaryMin         Int?
+  salaryMax         Int?
+  currency          String?
+  descriptionRaw    String?
+  descriptionClean  String?
+  requiredSkills    String[]           @default([])
+  preferredSkills   String[]           @default([])
+  postedDate        DateTime?
+  deadlineDate      DateTime?
+  employmentType    EmploymentType?
+  seniority         Seniority?
+  applicationStatus ApplicationStatus  @default(NEW)
+  outreachStatus    OutreachStatus     @default(NONE)
+  priority          Priority           @default(MEDIUM)
+  duplicateGroupId  String?
+  aiSummary         String?
+  notes             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceRef         JobSource?         @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  recruiter         Recruiter?         @relation(fields: [recruiterId], references: [id], onDelete: SetNull)
+  scores            JobScore[]
+  tags              JobTagOnJob[]
+  outreachMessages  OutreachMessage[]
+  followUpTasks     FollowUpTask[]
+
+  @@index([userId, createdAt])
+  @@index([userId, priority, applicationStatus])
+  @@index([externalId])
+  @@unique([userId, source, externalId])
+}
+
+model JobScore {
+  id                   String   @id @default(cuid())
+  jobId                String
+  userId               String
+  totalScore           Float
+  confidence           Float
+  explanation          String
+  factorBreakdown      Json
+  anomalies            String[] @default([])
+  missingDataPenalty   Float
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  job                  Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model OutreachMessage {
+  id                String         @id @default(cuid())
+  userId            String
+  jobId             String?
+  recruiterId       String?
+  channel           String
+  subject           String?
+  body              String
+  status            OutreachStatus @default(DRAFTED)
+  generatedByAgent  String?
+  sentAt            DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job               Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  recruiter         Recruiter?     @relation(fields: [recruiterId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, createdAt])
+}
+
+model FollowUpTask {
+  id                String         @id @default(cuid())
+  userId            String
+  jobId             String?
+  recruiterId       String?
+  dueAt             DateTime
+  status            FollowUpStatus @default(PENDING)
+  note              String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job               Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  recruiter         Recruiter?     @relation(fields: [recruiterId], references: [id], onDelete: SetNull)
+
+  @@index([userId, dueAt, status])
+}
+
+model JobTag {
+  id                String       @id @default(cuid())
+  userId            String
+  label             String
+  color             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  jobs              JobTagOnJob[]
+
+  @@unique([userId, label])
+  @@index([userId])
+}
+
+model JobTagOnJob {
+  id                String   @id @default(cuid())
+  jobId             String
+  tagId             String
+  createdAt         DateTime @default(now())
+  job               Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  tag               JobTag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, tagId])
+  @@index([tagId])
+}
+
+model IntegrationAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String
+  externalAccountId String?
+  status            String
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider])
+}
+
+model ImportBatch {
+  id                String   @id @default(cuid())
+  userId            String
+  sourceType        String
+  status            String
+  rawPayload        Json?
+  processedCount    Int      @default(0)
+  failedCount       Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model ActivityLog {
+  id                String   @id @default(cuid())
+  userId            String
+  type              String
+  message           String
+  context           Json?
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model DashboardSnapshot {
+  id                String   @id @default(cuid())
+  userId            String
+  summary           Json
+  capturedAt        DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, capturedAt])
+}
+
+model Agent {
+  id                        String                  @id @default(cuid())
+  userId                    String
+  key                       String
+  status                    AgentStatus             @default(ACTIVE)
+  isVisibleInChat           Boolean                 @default(true)
+  onboardingCompleted       Boolean                 @default(false)
+  desiredHelpMode           String?
+  personalityStyle          String?
+  memoryBudgetTokens        Int                     @default(5000)
+  responseBudgetTokens      Int                     @default(2000)
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  user                      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  soul                      AgentSoul?
+  identity                  AgentIdentity?
+  mindConfig                AgentMindConfig?
+  memoryProfile             AgentMemory?
+  chatSessions              ChatSession[]
+  actionLogs                AgentActionLog[]
+  instructions              AgentInstruction[]
+  summaryMemories           AgentSummaryMemory[]
+  toolPermissions           AgentToolPermission[]
+  onboardingProfile         AgentOnboardingProfile?
+  personalityTraits         PersonalityTrait[]
+  personalityLogs           PersonalityEvolutionLog[]
+  compactionLogs            MemoryCompactionLog[]
+  loopRules                 LoopPreventionRule[]
+  memoryChunks              AgentMemoryChunk[]
+  profileSnapshots          AgentProfileSnapshot[]
+
+  @@unique([userId, key])
+  @@index([userId, status])
+}
+
+model AgentProfileSnapshot {
+  id                String   @id @default(cuid())
+  agentId           String
+  role              String
+  soul              String
+  style             String
+  model             String
+  memoryAnchor      String
+  constraints       String[] @default([])
+  createdAt         DateTime @default(now())
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+model AgentSoul {
+  id                String   @id @default(cuid())
+  agentId           String   @unique
+  mission           String
+  longTermObjective String
+  principles        String[] @default([])
+  toneBoundaries    String[] @default([])
+  decisionPhilosophy String
+  valuesRules       String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model AgentIdentity {
+  id                String   @id @default(cuid())
+  agentId           String   @unique
+  name              String
+  roleTitle         String
+  specialization    String
+  communicationStyle String
+  expertiseProfile  String[] @default([])
+  strengths         String[] @default([])
+  cautionAreas      String[] @default([])
+  outputFormat      String?
+  description       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model AgentMindConfig {
+  id                String    @id @default(cuid())
+  agentId           String    @unique
+  provider          AiProvider @default(OPENAI)
+  model             String
+  systemPromptTemplate String
+  constraints       String[]  @default([])
+  deterministicMode Boolean   @default(true)
+  maxTurns          Int       @default(12)
+  cooldownMs        Int       @default(1000)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  agent             Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model AgentMemory {
+  id                String    @id @default(cuid())
+  agentId           String    @unique
+  retrievalTopK     Int       @default(10)
+  summaryWindow     Int       @default(12)
+  staleDays         Int       @default(30)
+  compressionThreshold Int    @default(30)
+  lastCompactedAt   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  agent             Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model AgentMemoryChunk {
+  id                String    @id @default(cuid())
+  agentId           String
+  userId            String
+  kind              MemoryKind
+  content           String
+  summary           String?
+  importanceScore   Float     @default(0.5)
+  tokenEstimate     Int       @default(0)
+  metadata          Json?
+  lastAccessedAt    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  agent             Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, kind, importanceScore])
+  @@index([userId, createdAt])
+}
+
+model ChatSession {
+  id                String      @id @default(cuid())
+  userId            String
+  agentId           String
+  title             String
+  isArchived        Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent             Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages          ChatMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([agentId, updatedAt])
+}
+
+model ChatMessage {
+  id                String      @id @default(cuid())
+  sessionId         String
+  role              MessageRole
+  content           String
+  tokenEstimate     Int         @default(0)
+  metadata          Json?
+  createdAt         DateTime    @default(now())
+  session           ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model AgentActionLog {
+  id                String   @id @default(cuid())
+  agentId           String
+  sessionId         String?
+  actionType        String
+  actionSummary     String
+  payload           Json?
+  createdAt         DateTime @default(now())
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+model AgentInstruction {
+  id                String   @id @default(cuid())
+  agentId           String
+  label             String
+  instruction       String
+  priority          Int      @default(100)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, active, priority])
+}
+
+model AgentSummaryMemory {
+  id                String   @id @default(cuid())
+  agentId           String
+  sessionId         String?
+  summary           String
+  sourceMessageCount Int
+  tokenSavedEstimate Int
+  createdAt         DateTime @default(now())
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+model AgentToolPermission {
+  id                String   @id @default(cuid())
+  agentId           String
+  toolName          String
+  accessLevel       String
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, toolName])
+}
+
+model AgentOnboardingProfile {
+  id                String   @id @default(cuid())
+  agentId           String   @unique
+  desiredName       String
+  desiredHelp       String
+  desiredStyle      String
+  rememberNotes     String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model PersonalityTrait {
+  id                String   @id @default(cuid())
+  agentId           String
+  traitKey          String
+  value             Float
+  confidence        Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, traitKey])
+}
+
+model PersonalityEvolutionLog {
+  id                String   @id @default(cuid())
+  agentId           String
+  traitKey          String
+  fromValue         Float
+  toValue           Float
+  reason            String
+  evidenceCount     Int
+  createdAt         DateTime @default(now())
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+model MemoryCompactionLog {
+  id                String   @id @default(cuid())
+  agentId           String
+  beforeCount       Int
+  afterCount        Int
+  tokenSavedEstimate Int
+  summary           String
+  createdAt         DateTime @default(now())
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+model LoopPreventionRule {
+  id                String   @id @default(cuid())
+  agentId           String
+  ruleKey           String
+  description       String
+  threshold         Int
+  cooldownMs        Int
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, ruleKey])
+}

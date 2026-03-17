@@ -1,0 +1,71 @@
+{
+  "local-dev-user": {
+    "monthlyTokenBudget": 100000000,
+    "softLimitPercent": 85,
+    "perResponseTokenCap": 8192,
+    "autoSummarizeOnHighUsage": true,
+    "strictLoopProtection": true,
+    "strictAgentResponseMode": false,
+    "allowProviderFallback": true,
+    "redactPiiInMemory": true,
+    "usagePeriodStart": "2026-03-15T20:18:02.786Z",
+    "usageByProvider": {
+      "openai": {
+        "requests": 23,
+        "promptTokens": 163,
+        "completionTokens": 1387
+      },
+      "anthropic": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "gemini": {
+        "requests": 110,
+        "promptTokens": 2249,
+        "completionTokens": 10501
+      },
+      "groq": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "mistral": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "cohere": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "perplexity": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "xai": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "deepseek": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "together": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "openrouter": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      }
+    },
+    "updatedAt": "2026-03-17T12:06:46.235Z"
+  }
+}
