@@ -24,8 +24,9 @@ export class BrowserSessionManager {
     maxActions: number;
     userId?: string;
     metadata?: Record<string, unknown>;
+    sessionId?: string;
   }): BrowserSessionSnapshot {
-    const sessionId = randomUUID();
+    const sessionId = input.sessionId || randomUUID();
     const now = new Date().toISOString();
 
     this.sessions.set(sessionId, {

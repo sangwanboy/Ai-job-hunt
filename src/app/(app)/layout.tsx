@@ -11,9 +11,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         Skip to main content
       </a>
       <AppSidebar />
-      <div className="flex h-full min-w-0 flex-col">
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
         <TopNav />
-        <main id="main-content" className="relative flex-1 min-h-0 overflow-hidden">{children}</main>
+        <main id="main-content" className="relative flex-1 min-h-0 overflow-hidden bg-slate-50/50">
+          {children}
+        </main>
       </div>
     </div>
   );

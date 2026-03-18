@@ -63,8 +63,8 @@ export default function OutreachPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-wrap items-start justify-between gap-3">
+    <div className="flex h-full flex-col overflow-hidden">
+      <section className="flex flex-none flex-wrap items-start justify-between gap-3 pb-6">
         <div>
           <h2 className="text-2xl font-extrabold tracking-tight">Outreach</h2>
           <p className="mt-1 text-sm text-muted">Plan campaigns, personalize drafts, and control send cadence.</p>
@@ -88,68 +88,70 @@ export default function OutreachPage() {
         </div>
       </section>
 
-      {toast ? (
-        <div className={`rounded-xl border px-4 py-3 text-sm flex justify-between items-center ${
-          toast.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : 
-          toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" :
-          "border-blue-200 bg-blue-50 text-blue-700"
-        }`}>
-          <span>{toast.message}</span>
-          <button onClick={() => setToast(null)} className="opacity-60 hover:opacity-100 font-bold">×</button>
-        </div>
-      ) : null}
+      <div className="flex-1 overflow-y-auto min-h-0 space-y-6 pb-6 custom-scrollbar">
+        {toast ? (
+          <div className={`rounded-xl border px-4 py-3 text-sm flex justify-between items-center ${
+            toast.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : 
+            toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" :
+            "border-blue-200 bg-blue-50 text-blue-700"
+          }`}>
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} className="opacity-60 hover:opacity-100 font-bold">×</button>
+          </div>
+        ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <article className={`panel p-4 ${isPaused ? "opacity-60 grayscale-[0.5]" : ""}`}>
-          <p className="text-sm text-muted text-center flex items-center justify-center gap-2">
-            Queued Today
-            {isPaused && <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />}
-          </p>
-          <p className="mt-2 text-2xl font-extrabold text-center">{queuedCount}</p>
-        </article>
-        <article className="panel p-4">
-          <p className="text-sm text-muted text-center">Personalized</p>
-          <p className="mt-2 text-2xl font-extrabold text-center">87%</p>
-        </article>
-        <article className="panel p-4">
-          <p className="text-sm text-muted text-center">Positive Replies</p>
-          <p className="mt-2 text-2xl font-extrabold text-center">19%</p>
-        </article>
-      </section>
+        <section className="grid gap-4 md:grid-cols-3">
+          <article className={`panel p-4 ${isPaused ? "opacity-60 grayscale-[0.5]" : ""}`}>
+            <p className="text-sm text-muted text-center flex items-center justify-center gap-2">
+              Queued Today
+              {isPaused && <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />}
+            </p>
+            <p className="mt-2 text-2xl font-extrabold text-center">{queuedCount}</p>
+          </article>
+          <article className="panel p-4">
+            <p className="text-sm text-muted text-center">Personalized</p>
+            <p className="mt-2 text-2xl font-extrabold text-center">87%</p>
+          </article>
+          <article className="panel p-4">
+            <p className="text-sm text-muted text-center">Positive Replies</p>
+            <p className="mt-2 text-2xl font-extrabold text-center">19%</p>
+          </article>
+        </section>
 
-      <section className="panel overflow-hidden p-0">
-        <div className="border-b border-white/60 bg-white/70 px-4 py-3">
-          <h3 className="font-bold">Campaign Queue</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-white/65 text-left text-muted">
-              <tr>
-                <th className="px-4 py-2 font-semibold">Recruiter</th>
-                <th className="px-4 py-2 font-semibold">Channel</th>
-                <th className="px-4 py-2 font-semibold">Tone</th>
-                <th className="px-4 py-2 font-semibold">Status</th>
-                <th className="px-4 py-2 font-semibold">ETA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {campaignRows.map((row) => (
-                <tr key={`${row.recruiter}-${row.channel}`} className="border-t border-white/60">
-                  <td className="px-4 py-3 font-semibold">{row.recruiter}</td>
-                  <td className="px-4 py-3">{row.channel}</td>
-                  <td className="px-4 py-3">{row.tone}</td>
-                  <td className="px-4 py-3">
-                    <span className={`badge ${isPaused ? "bg-amber-50 text-amber-700 border-amber-200" : ""}`}>
-                      {isPaused && row.status !== "Draft" ? "PAUSED" : row.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{row.eta}</td>
+        <section className="panel overflow-hidden p-0">
+          <div className="border-b border-white/60 bg-white/70 px-4 py-3">
+            <h3 className="font-bold">Campaign Queue</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-white/65 text-left text-muted">
+                <tr>
+                  <th className="px-4 py-2 font-semibold">Recruiter</th>
+                  <th className="px-4 py-2 font-semibold">Channel</th>
+                  <th className="px-4 py-2 font-semibold">Tone</th>
+                  <th className="px-4 py-2 font-semibold">Status</th>
+                  <th className="px-4 py-2 font-semibold">ETA</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {campaignRows.map((row) => (
+                  <tr key={`${row.recruiter}-${row.channel}`} className="border-t border-white/60">
+                    <td className="px-4 py-3 font-semibold">{row.recruiter}</td>
+                    <td className="px-4 py-3">{row.channel}</td>
+                    <td className="px-4 py-3">{row.tone}</td>
+                    <td className="px-4 py-3">
+                      <span className={`badge ${isPaused ? "bg-amber-50 text-amber-700 border-amber-200" : ""}`}>
+                        {isPaused && row.status !== "Draft" ? "PAUSED" : row.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">{row.eta}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
 
       {showDrafts ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">

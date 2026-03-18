@@ -1,5 +1,4 @@
 import type { ApplicationStatus, Priority, WorkMode } from "@/lib/domain/enums";
-import type { JobSearchResult } from "@/lib/services/jobs/job-search-tool";
 import type { JobRow } from "@/types/domain";
 
 function inferWorkMode(value: string): WorkMode {
@@ -27,7 +26,13 @@ export function toSalaryRange(salaryMin?: number | null, salaryMax?: number | nu
   return "Not listed";
 }
 
-export function mapSearchResultToCreatePayload(result: JobSearchResult): {
+export function mapSearchResultToCreatePayload(result: {
+  title: string;
+  company: string;
+  location: string;
+  salary: string;
+  url: string;
+}): {
   title: string;
   company: string;
   location: string;
@@ -44,7 +49,7 @@ export function mapSearchResultToCreatePayload(result: JobSearchResult): {
     location: result.location,
     salary: result.salary,
     url: result.url,
-    source: "Adzuna",
+    source: "Browser",
     status: "SAVED",
     priority: "MEDIUM",
     workMode: inferWorkMode(result.location),

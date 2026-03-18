@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { mapSearchResultToCreatePayload } from "@/lib/services/jobs/job-row-mapper";
 import { localJobsCache } from "@/lib/services/jobs/local-jobs-cache";
-import { searchJobs } from "@/lib/services/jobs/job-search-tool";
 import { scoreJob } from "@/lib/services/jobs/scoring-engine";
+// Note: searchJobs legacy import removed to fix build error.
 
 const searchSchema = z.object({
   keywords: z.string().min(1),
@@ -56,8 +56,19 @@ export async function POST(request: Request) {
     const body = (await request.json()) as unknown;
     const payload = searchSchema.parse(body);
 
+    // LEGACY ALERT: The job_search API is retired.
+    // All job discovery is now handled by Atlas via Browser Navigation.
+    return NextResponse.json({
+      success: true,
+      message: "Legacy API search is disabled. Please use Atlas Browser Discovery for live results.",
+      importedCount: 0,
+      results: [],
+    });
+
+    /* 
+    Legacy logic preserved for reference (inactive):
     const results = await searchJobs(payload);
-    const limited = results.slice(0, payload.resultsPerPage ?? 8);
+    */
 
     try {
       const user = await ensureLocalDevUser();

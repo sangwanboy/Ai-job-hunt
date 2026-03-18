@@ -65,6 +65,14 @@ const extractTextSchema = z
   })
   .strict();
 
+const extractJobsSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    selector: z.string().min(1).optional(),
+    pageId: z.string().min(1).optional(),
+  })
+  .strict();
+
 const screenshotSchema = z
   .object({
     sessionId: z.string().min(1),
@@ -90,6 +98,7 @@ const schemaMap: { [K in BrowserToolName]: z.ZodType<BrowserToolInputMap[K]> } =
   browser_type: typeSchema,
   browser_scroll: scrollSchema,
   browser_extract_text: extractTextSchema,
+  browser_extract_jobs: extractJobsSchema,
   browser_screenshot: screenshotSchema,
   browser_close_session: closeSessionSchema,
 };

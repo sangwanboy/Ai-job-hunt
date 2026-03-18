@@ -20,6 +20,7 @@ import type {
   BrowserTypeInput,
   BrowserScrollInput,
   BrowserExtractTextInput,
+  BrowserExtractJobsInput,
   BrowserScreenshotInput,
   BrowserCloseSessionInput,
   BrowserRuntimeConfig,
@@ -247,6 +248,53 @@ export class BrowserService {
         pageId: resolved.pageId,
         text: normalizedText,
         length: normalizedText.length,
+      };
+    });
+  }
+
+  async extractJobs(
+    input: BrowserExtractJobsInput,
+  ): Promise<BrowserActionResult<{ sessionId: string; pageId: string; jobs: Array<{ title?: string; company?: string; location?: string; link?: string }> }>> {
+    return this.executeSessionAction("browser_extract_jobs", input.sessionId, async () => {
+      const resolved = this.sessionManager.getPage(input.sessionId, input.pageId);
+      const selector = input.selector || "body";
+
+      const jobs = await resolved.page.evaluate((sel: string) => {
+        const container = document.querySelector(sel) || document.body;
+        const items = Array.from(container.querySelectorAll(".job, [data-job], article, .card")).filter(el => {
+          const text = el.textContent?.toLowerCase() || "";
+          return text.includes("job") || text.includes("career") || text.includes("position") || text.includes("engineer") || text.includes("developer");
+        });
+
+        if (items.length === 0) {
+          return Array.from(document.querySelectorAll("a")).filter(a => {
+            const href = a.href.toLowerCase();
+            return href.includes("/job/") || href.includes("/careers/") || href.includes("/vacancy/");
+          }).slice(0, 10).map(a => ({
+            title: a.textContent?.trim() || "Unknown Position",
+            link: a.href,
+          }));
+        }
+
+        return items.slice(0, 15).map(item => {
+          const titleEl = item.querySelector("h1, h2, h3, h4, .title, [class*='title']");
+          const companyEl = item.querySelector(".company, [class*='company'], .brand");
+          const locationEl = item.querySelector(".location, [class*='location'], .address");
+          const linkEl = item.querySelector("a");
+
+          return {
+            title: titleEl?.textContent?.trim() || "Untitled Role",
+            company: companyEl?.textContent?.trim() || "Unknown Company",
+            location: locationEl?.textContent?.trim() || "Unknown Location",
+            link: linkEl?.href || "",
+          };
+        });
+      }, selector);
+
+      return {
+        sessionId: input.sessionId,
+        pageId: resolved.pageId,
+        jobs,
       };
     });
   }
@@ -502,11 +550,22 @@ export class BrowserService {
       return this.sessionManager.getPage(sessionId, pageId);
     } catch (error) {
       const parsed = toBrowserServiceError(error);
-      if (parsed.code !== "PAGE_NOT_FOUND") {
-        throw parsed;
+      
+      // If session doesn't exist, create it first
+      let session;
+      try {
+        session = this.sessionManager.getSession(sessionId);
+      } catch (e) {
+        await this.ensureBrowserReady();
+        const context = await this.getBrowser().newContext();
+        this.sessionManager.createSession({
+          sessionId, // Use the requested ID
+          context,
+          maxActions: this.config.maxActionsPerSession,
+        });
+        session = this.sessionManager.getSession(sessionId);
       }
 
-      const session = this.sessionManager.getSession(sessionId);
       const page = await session.context.newPage();
       const createdPageId = this.sessionManager.attachPage(sessionId, page);
       return { page, pageId: createdPageId };

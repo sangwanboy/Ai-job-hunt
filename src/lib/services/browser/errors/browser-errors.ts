@@ -6,6 +6,7 @@ type BrowserErrorCode =
   | "ACTION_LIMIT_REACHED"
   | "CONFIRMATION_REJECTED"
   | "VALIDATION_FAILED"
+  | "BROWSER_TOOL_ROUTE_ERROR"
   | "ACTION_FAILED";
 
 export class BrowserServiceError extends Error {

@@ -3,6 +3,7 @@ import { validateBrowserToolInput } from "@/lib/services/browser/validation/brow
 import type {
   BrowserActionResult,
   BrowserToolName,
+  BrowserExtractJobsInput,
 } from "@/lib/services/browser/types/browser-types";
 
 export class AgentBrowserToolRegistry {
@@ -31,6 +32,8 @@ export class AgentBrowserToolRegistry {
         return this.service.scroll(validateBrowserToolInput("browser_scroll", rawInput));
       case "browser_extract_text":
         return this.service.extractText(validateBrowserToolInput("browser_extract_text", rawInput));
+      case "browser_extract_jobs":
+        return this.service.extractJobs(validateBrowserToolInput("browser_extract_jobs", rawInput) as BrowserExtractJobsInput);
       case "browser_screenshot":
         return this.service.screenshot(validateBrowserToolInput("browser_screenshot", rawInput));
       case "browser_close_session":
@@ -60,6 +63,10 @@ export class AgentBrowserToolRegistry {
 
   browser_extract_text(input: unknown) {
     return this.execute("browser_extract_text", input);
+  }
+
+  browser_extract_jobs(input: unknown) {
+    return this.execute("browser_extract_jobs", input);
   }
 
   browser_screenshot(input: unknown) {

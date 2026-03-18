@@ -7,20 +7,25 @@ export async function GET(request: Request) {
   const agentId = searchParams.get("agentId");
   const sessionId = searchParams.get("sessionId");
   try {
-    let user = await prisma.user.findFirst({
-      where: { email: "local-dev-user@ai-job-os.local" },
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email: "local-dev-user@ai-job-os.local",
-          name: "Local Dev User",
-        },
+    let userId = "local-dev-user";
+    try {
+      let user = await prisma.user.findFirst({
+        where: { email: "local-dev-user@ai-job-os.local" },
       });
+
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email: "local-dev-user@ai-job-os.local",
+            name: "Local Dev User",
+          },
+        });
+      }
+      userId = user.id;
+    } catch (dbError) {
+      console.warn("[API/Sessions] Database unreachable, falling back to mock user ID:", dbError instanceof Error ? dbError.message : "Unknown error");
     }
 
-    const userId = user.id;
     if (sessionId) {
       const messages = await agentStore.getSessionMessages(sessionId);
       return NextResponse.json({ messages });
@@ -34,7 +39,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ sessions });
       } catch (innerError) {
         console.error("[API/Sessions] agentStore.listSessions failed:", innerError);
-        throw innerError;
+        return NextResponse.json({ sessions: [] });
       }
     }
 

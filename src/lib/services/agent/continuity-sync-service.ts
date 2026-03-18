@@ -65,6 +65,7 @@ export type MindLayer = {
   pendingActions: string[];
   activeToolIntentions: string[];
   operatingAssumptions: string[];
+  todos: string[];
 };
 
 export type MemoryLayer = {
@@ -75,7 +76,6 @@ export type MemoryLayer = {
   jobContext: string;
   followUpState: string;
   errorFixRecords: string[];
-  todos: string[];
   learnedPatterns: string[];
   personalityAdjustments: string[];
 };
@@ -116,16 +116,12 @@ export type SyncLogEntry = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const IDLE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
-const HISTORY_WINDOW = 20; // max recent turns to keep inline
+const HISTORY_WINDOW = 30; // Max turns before archival/summarization
+const RAW_HISTORY_RETAIN = 20; // How many raw turns to keep after summarization
 const MEMORY_DIR = "project_memory";
 
 const PROJECT_MEMORY_FILES = {
   agentContext: path.join(MEMORY_DIR, "agent_context.md"),
-  changeLog: path.join(MEMORY_DIR, "change_log.md"),
-  todo: path.join(MEMORY_DIR, "todo.md"),
-  errorLog: path.join(MEMORY_DIR, "error_log.md"),
-  architecture: path.join(MEMORY_DIR, "architecture.md"),
-  sessionSummaries: path.join(MEMORY_DIR, "session_summaries.md"),
   syncLog: path.join(MEMORY_DIR, "agent_sync_log.md"),
 } as const;
 
@@ -187,6 +183,7 @@ function defaultMind(): MindLayer {
       "User is actively job searching.",
       "Prefer UK remote senior full-stack roles.",
     ],
+    todos: [],
   };
 }
 
@@ -199,7 +196,6 @@ function defaultMemory(): MemoryLayer {
     jobContext: "Job market: UK remote senior full-stack engineering roles.",
     followUpState: "none",
     errorFixRecords: [],
-    todos: [],
     learnedPatterns: [],
     personalityAdjustments: [],
   };
@@ -237,16 +233,18 @@ globalRef.continuitySyncStates = continuitySyncStates;
 export class ContinuitySyncService {
   // ── Internal helpers ──────────────────────────────────────────────────────
 
-  private getState(agentId: string): ContinuityState {
-    const existing = continuitySyncStates.get(agentId);
+  private getState(agentId: string, sessionId = "default"): ContinuityState {
+    const key = `${agentId}:${sessionId}`;
+    const existing = continuitySyncStates.get(key);
     if (existing) return existing;
     const fresh = defaultContinuityState(agentId);
-    continuitySyncStates.set(agentId, fresh);
+    continuitySyncStates.set(key, fresh);
     return fresh;
   }
 
-  private setState(state: ContinuityState): void {
-    continuitySyncStates.set(state.agentId, state);
+  private setState(state: ContinuityState, sessionId = "default"): void {
+    const key = `${state.agentId}:${sessionId}`;
+    continuitySyncStates.set(key, state);
   }
 
   private memDir(): string {
@@ -316,12 +314,8 @@ export class ContinuitySyncService {
   }
 
   private syncMemoryFromService(agentId: string, state: ContinuityState): MemoryLayer {
-    const summary = memoryService.getRelevantSummary(agentId);
-    const summaries = summary ? [summary] : state.memory.summaries;
-    return {
-      ...state.memory,
-      summaries,
-    };
+    // High-level sync disabled as per user request — but method kept for layer structure
+    return state.memory;
   }
 
   // ── Alignment validation ──────────────────────────────────────────────────
@@ -363,11 +357,12 @@ export class ContinuitySyncService {
 
   // ── Sync log writer ───────────────────────────────────────────────────────
 
-  private async writeSyncLogEntry(entry: SyncLogEntry): Promise<void> {
+  private async writeSyncLogEntry(entry: SyncLogEntry & { sessionId?: string }): Promise<void> {
     const logLine = [
       `\n## Sync Event: ${entry.timestamp}`,
       `- **Trigger:** ${entry.triggerType}`,
       `- **Agent:** ${entry.agentId}`,
+      `- **Session:** ${entry.sessionId || "default"}`,
       `- **Files Read:** ${entry.filesRead.join(", ") || "none"}`,
       `- **Files Updated:** ${entry.filesUpdated.join(", ") || "none"}`,
       `- **What Changed:** ${entry.whatChanged}`,
@@ -388,6 +383,7 @@ export class ContinuitySyncService {
 
   async syncAll(
     agentId: string,
+    sessionId: string,
     triggerType: SyncTriggerType,
     options: {
       stepDescription?: string;
@@ -396,7 +392,8 @@ export class ContinuitySyncService {
       mindUpdate?: Partial<MindLayer>;
     } = {},
   ): Promise<ContinuityState> {
-    const state = this.getState(agentId);
+    const sid = sessionId || "default";
+    const state = this.getState(agentId, sid);
     const now = new Date().toISOString();
 
     // 1. Load Soul from profile store
@@ -405,8 +402,8 @@ export class ContinuitySyncService {
     // 2. Load Identity from profile store (bounded by Soul)
     const identity = this.syncIdentityFromProfile(agentId, state);
 
-    // 3. Sync Memory from memory service
-    const memory = this.syncMemoryFromService(agentId, state);
+    // 3. Skip/Disable Memory sync as per user request
+    const memory = state.memory; // Keep existing memory without re-syncing from memoryService
 
     // 4. Update Mind if provided
     const mind: MindLayer = {
@@ -427,28 +424,20 @@ export class ContinuitySyncService {
     updated.alignmentStatus = alignment.status;
     updated.driftWarnings = alignment.driftWarnings;
 
-    this.setState(updated);
+    this.setState(updated, sessionId);
 
-    // 6. Write todo.md from memory todos
-    if (updated.memory.todos.length > 0) {
-      const todoContent = [
-        "# TODO\n",
-        `_Last updated: ${now}_\n`,
-        ...updated.memory.todos.map((t, i) => `${i + 1}. ${t}`),
-      ].join("\n");
-      await this.safeWriteFile(this.filePath("todo"), todoContent);
-    }
+    this.setState(updated, sessionId);
 
     // 7. Write sync log
     const filesRead = [PROJECT_MEMORY_FILES.agentContext];
     const filesUpdated = [...(options.filesChanged ?? [])];
-    if (updated.memory.todos.length > 0) filesUpdated.push(PROJECT_MEMORY_FILES.todo);
     filesUpdated.push(PROJECT_MEMORY_FILES.syncLog);
 
     await this.writeSyncLogEntry({
       timestamp: now,
       triggerType,
       agentId,
+      sessionId,
       filesRead,
       filesUpdated,
       whatChanged: options.stepDescription ?? "Full continuity sync performed.",
@@ -463,22 +452,22 @@ export class ContinuitySyncService {
 
   // ── Activity tracking ─────────────────────────────────────────────────────
 
-  recordActivity(agentId: string): void {
-    const state = this.getState(agentId);
+  recordActivity(agentId: string, sessionId = "default"): void {
+    const state = this.getState(agentId, sessionId);
     state.lastActivityAt = new Date().toISOString();
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
-  isIdle(agentId: string): boolean {
-    const state = this.getState(agentId);
+  isIdle(agentId: string, sessionId = "default"): boolean {
+    const state = this.getState(agentId, sessionId);
     const lastActivity = new Date(state.lastActivityAt).getTime();
     return Date.now() - lastActivity >= IDLE_THRESHOLD_MS;
   }
 
   // ── Idle rehydration ──────────────────────────────────────────────────────
 
-  async checkIdleRehydration(agentId: string): Promise<{ rehydrated: boolean }> {
-    if (!this.isIdle(agentId)) {
+  async checkIdleRehydration(agentId: string, sessionId = "default"): Promise<{ rehydrated: boolean }> {
+    if (!this.isIdle(agentId, sessionId)) {
       return { rehydrated: false };
     }
 
@@ -487,47 +476,15 @@ export class ContinuitySyncService {
     const agentContextContent = await this.safeReadFile(this.filePath("agentContext"));
     if (agentContextContent) filesRead.push(PROJECT_MEMORY_FILES.agentContext);
 
-    const todoContent = await this.safeReadFile(this.filePath("todo"));
-    if (todoContent) filesRead.push(PROJECT_MEMORY_FILES.todo);
-
-    const errorLogContent = await this.safeReadFile(this.filePath("errorLog"));
-    if (errorLogContent) filesRead.push(PROJECT_MEMORY_FILES.errorLog);
-
     const syncLogContent = await this.safeReadFile(this.filePath("syncLog"));
     if (syncLogContent) filesRead.push(PROJECT_MEMORY_FILES.syncLog);
 
-    const sessionSummariesContent = await this.safeReadFile(this.filePath("sessionSummaries"));
-    if (sessionSummariesContent) filesRead.push(PROJECT_MEMORY_FILES.sessionSummaries);
-
-    // Extract todos from todo.md if present
-    const state = this.getState(agentId);
-    if (todoContent) {
-      const todoLines = todoContent
-        .split("\n")
-        .filter((l) => /^\d+\./.test(l.trim()))
-        .map((l) => l.replace(/^\d+\.\s*/, "").trim())
-        .filter(Boolean);
-      if (todoLines.length > 0) {
-        state.memory.todos = todoLines;
-      }
-    }
-
-    // Extract session summary from session_summaries.md
-    if (sessionSummariesContent) {
-      const lastSummary = sessionSummariesContent
-        .split("\n## Session")
-        .filter(Boolean)
-        .at(-1)
-        ?.trim();
-      if (lastSummary) {
-        state.history.summaries = [...state.history.summaries, lastSummary].slice(-5);
-      }
-    }
+    const state = this.getState(agentId, sessionId);
 
     state.safeResumePoint = `Idle rehydration at ${new Date().toISOString()} — layers restored from project_memory files.`;
-    this.setState(state);
+    this.setState(state, sessionId);
 
-    await this.syncAll(agentId, "idle-rehydration", {
+    await this.syncAll(agentId, sessionId, "idle-rehydration", {
       stepDescription: `Idle rehydration triggered. Inactive for >1h. Re-read: ${filesRead.join(", ")}.`,
       filesChanged: [],
       nextIntendedStep: "Resume normal operation after rehydration.",
@@ -538,8 +495,8 @@ export class ContinuitySyncService {
 
   // ── Pre/post step triggers ─────────────────────────────────────────────────
 
-  async syncPreStep(agentId: string, stepDescription: string): Promise<void> {
-    await this.syncAll(agentId, "major-step-pre", {
+  async syncPreStep(agentId: string, sessionId: string, stepDescription: string): Promise<void> {
+    await this.syncAll(agentId, sessionId, "major-step-pre", {
       stepDescription: `[PRE] ${stepDescription}`,
       nextIntendedStep: stepDescription,
     });
@@ -547,11 +504,12 @@ export class ContinuitySyncService {
 
   async syncPostStep(
     agentId: string,
+    sessionId: string,
     stepDescription: string,
     filesChanged: string[] = [],
     mindUpdate?: Partial<MindLayer>,
   ): Promise<void> {
-    await this.syncAll(agentId, "major-step-post", {
+    await this.syncAll(agentId, sessionId, "major-step-post", {
       stepDescription: `[POST] ${stepDescription}`,
       filesChanged,
       nextIntendedStep: "Awaiting next user message.",
@@ -561,85 +519,139 @@ export class ContinuitySyncService {
 
   // ── History management ────────────────────────────────────────────────────
 
-  addHistoryTurn(agentId: string, role: string, content: string): void {
-    const state = this.getState(agentId);
-    const turn = { role, content: content.slice(0, 500), timestamp: new Date().toISOString() };
-    state.history.recentTurns = [...state.history.recentTurns, turn].slice(-HISTORY_WINDOW);
+  addHistoryTurn(agentId: string, sessionId: string, role: string, content: string): void {
+    const state = this.getState(agentId, sessionId);
+    const turn = { role, content: content.slice(0, 1000), timestamp: new Date().toISOString() };
+    state.history.recentTurns.push(turn);
 
-    // Auto-summarize if window exceeds threshold
+    // Trigger summarization when window exceeds HISTORY_WINDOW (25-30)
     if (state.history.recentTurns.length >= HISTORY_WINDOW) {
-      const oldestBatch = state.history.recentTurns.slice(0, 5);
-      const summary = `[Auto-summary] ${oldestBatch.map((t) => `${t.role}: ${t.content.slice(0, 80)}`).join(" | ")}`;
-      state.history.summaries = [...state.history.summaries, summary].slice(-10);
-      state.history.recentTurns = state.history.recentTurns.slice(5);
+      const turnsToSummarize = state.history.recentTurns.length - RAW_HISTORY_RETAIN;
+      if (turnsToSummarize > 0) {
+        const batch = state.history.recentTurns.slice(0, turnsToSummarize);
+        const summary = `[Archival Summary] ${batch.map((t) => `${t.role}: ${t.content.slice(0, 80)}`).join(" | ")}`;
+        state.history.summaries = [...state.history.summaries, summary].slice(-20);
+        state.history.recentTurns = state.history.recentTurns.slice(turnsToSummarize);
+      }
     }
 
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
-  updateCurrentDirection(agentId: string, direction: string): void {
-    const state = this.getState(agentId);
+  getFormattedHistory(agentId: string, sessionId: string): string | null {
+    const state = this.getState(agentId, sessionId);
+    if (state.history.recentTurns.length === 0) return null;
+
+    return state.history.recentTurns
+      .map(t => `${t.role}: ${t.content}`)
+      .join("\n\n");
+  }
+
+  updateCurrentDirection(agentId: string, sessionId: string, direction: string): void {
+    const state = this.getState(agentId, sessionId);
     state.history.currentDirection = direction;
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
-  addUnresolvedThread(agentId: string, thread: string): void {
-    const state = this.getState(agentId);
+  addUnresolvedThread(agentId: string, sessionId: string, thread: string): void {
+    const state = this.getState(agentId, sessionId);
     state.history.unresolvedThreads = [...state.history.unresolvedThreads, thread].slice(-10);
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
-  resolveThread(agentId: string, threadPattern: string): void {
-    const state = this.getState(agentId);
+  resolveThread(agentId: string, sessionId: string, threadPattern: string): void {
+    const state = this.getState(agentId, sessionId);
     state.history.unresolvedThreads = state.history.unresolvedThreads.filter(
       (t) => !t.toLowerCase().includes(threadPattern.toLowerCase()),
     );
-    this.setState(state);
+    this.setState(state, sessionId);
+  }
+
+  // ── LLM-Driven Layer Sync ────────────────────────────────────────────────
+  
+  async syncLayersWithLlm(
+    agentId: string,
+    sessionId: string,
+    update: {
+      soul?: Partial<SoulLayer>;
+      identity?: Partial<IdentityLayer>;
+      mind?: Partial<MindLayer>;
+    }
+  ): Promise<void> {
+    const state = this.getState(agentId, sessionId);
+
+    if (update.soul) {
+      state.soul = { ...state.soul, ...update.soul };
+    }
+    if (update.identity) {
+      state.identity = { ...state.identity, ...update.identity };
+    }
+    if (update.mind) {
+      state.mind = { ...state.mind, ...update.mind };
+    }
+
+    state.lastSyncedAt = new Date().toISOString();
+    this.setState(state, sessionId);
+
+    // Log the LLM-driven update
+    await this.writeSyncLogEntry({
+      timestamp: state.lastSyncedAt,
+      triggerType: "major-step-post",
+      agentId,
+      sessionId,
+      filesRead: [],
+      filesUpdated: [PROJECT_MEMORY_FILES.syncLog],
+      whatChanged: "LLM-driven layer synchronization (Soul/Identity/Mind).",
+      safeResumePoint: state.safeResumePoint,
+      nextIntendedStep: "Awaiting next user message.",
+      alignmentStatus: state.alignmentStatus,
+      driftWarnings: state.driftWarnings,
+    });
   }
 
   // ── Mind management ───────────────────────────────────────────────────────
 
-  updateMind(agentId: string, update: Partial<MindLayer>): void {
-    const state = this.getState(agentId);
+  updateMind(agentId: string, sessionId: string, update: Partial<MindLayer>): void {
+    const state = this.getState(agentId, sessionId);
     state.mind = { ...state.mind, ...update };
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
   // ── Memory management ─────────────────────────────────────────────────────
 
-  addTodo(agentId: string, todo: string): void {
-    const state = this.getState(agentId);
-    if (!state.memory.todos.includes(todo)) {
-      state.memory.todos = [...state.memory.todos, todo];
-      this.setState(state);
+  addTodo(agentId: string, sessionId: string, todo: string): void {
+    const state = this.getState(agentId, sessionId);
+    if (!state.mind.todos.includes(todo)) {
+      state.mind.todos = [...state.mind.todos, todo];
+      this.setState(state, sessionId);
     }
   }
 
-  addLongTermFact(agentId: string, fact: string): void {
-    const state = this.getState(agentId);
+  addLongTermFact(agentId: string, sessionId: string, fact: string): void {
+    const state = this.getState(agentId, sessionId);
     if (!state.memory.longTermFacts.includes(fact)) {
       state.memory.longTermFacts = [...state.memory.longTermFacts, fact].slice(-50);
-      this.setState(state);
+      this.setState(state, sessionId);
     }
   }
 
-  recordError(agentId: string, record: string): void {
-    const state = this.getState(agentId);
+  recordError(agentId: string, sessionId: string, record: string): void {
+    const state = this.getState(agentId, sessionId);
     state.memory.errorFixRecords = [...state.memory.errorFixRecords, `[${new Date().toISOString()}] ${record}`].slice(-20);
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
-  recordToolResult(agentId: string, toolResult: string): void {
-    const state = this.getState(agentId);
+  recordToolResult(agentId: string, sessionId: string, toolResult: string): void {
+    const state = this.getState(agentId, sessionId);
     state.memory.toolResults = [...state.memory.toolResults, toolResult].slice(-20);
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
   // ── Context checkpoint ────────────────────────────────────────────────────
 
-  async checkContextCheckpoint(agentId: string, estimatedTokens: number): Promise<void> {
+  async checkContextCheckpoint(agentId: string, sessionId: string, estimatedTokens: number): Promise<void> {
     if (estimatedTokens >= 96_000) {
-      await this.syncAll(agentId, "context-checkpoint", {
+      await this.syncAll(agentId, sessionId, "context-checkpoint", {
         stepDescription: `Context checkpoint: ~${estimatedTokens} estimated tokens active.`,
         nextIntendedStep: "Continue conversation with compacted context.",
       });
@@ -648,19 +660,19 @@ export class ContinuitySyncService {
 
   // ── Safe resume point ─────────────────────────────────────────────────────
 
-  setSafeResumePoint(agentId: string, description: string): void {
-    const state = this.getState(agentId);
+  setSafeResumePoint(agentId: string, sessionId: string, description: string): void {
+    const state = this.getState(agentId, sessionId);
     state.safeResumePoint = `[${new Date().toISOString()}] ${description}`;
-    this.setState(state);
+    this.setState(state, sessionId);
   }
 
   // ── Public getters ────────────────────────────────────────────────────────
 
-  getContinuityState(agentId: string): ContinuityState {
-    return this.getState(agentId);
+  getContinuityState(agentId: string, sessionId = "default"): ContinuityState {
+    return this.getState(agentId, sessionId);
   }
 
-  getSyncSummary(agentId: string): {
+  getSyncSummary(agentId: string, sessionId = "default"): {
     lastSyncedAt: string;
     lastActivityAt: string;
     alignmentStatus: string;
@@ -669,7 +681,7 @@ export class ContinuitySyncService {
     historyTurns: number;
     todoCount: number;
   } {
-    const state = this.getState(agentId);
+    const state = this.getState(agentId, sessionId);
     return {
       lastSyncedAt: state.lastSyncedAt,
       lastActivityAt: state.lastActivityAt,
@@ -677,49 +689,12 @@ export class ContinuitySyncService {
       driftWarnings: state.driftWarnings,
       safeResumePoint: state.safeResumePoint,
       historyTurns: state.history.recentTurns.length,
-      todoCount: state.memory.todos.length,
+      todoCount: state.mind.todos.length,
     };
   }
 
   // ── Session summary writer ────────────────────────────────────────────────
 
-  async writeSessionSummary(agentId: string, summary: string): Promise<void> {
-    const now = new Date().toISOString();
-    const entry = `\n## Session [${agentId}] — ${now}\n${summary}\n`;
-    await this.safeAppendFile(this.filePath("sessionSummaries"), entry);
-
-    const state = this.getState(agentId);
-    state.history.summaries = [...state.history.summaries, summary].slice(-10);
-    this.setState(state);
-  }
-
-  // ── Change log writer ─────────────────────────────────────────────────────
-
-  async recordChange(
-    agentId: string,
-    description: string,
-    filesChanged: string[],
-  ): Promise<void> {
-    const now = new Date().toISOString();
-    const entry = [
-      `\n## Change [${agentId}] — ${now}`,
-      description,
-      filesChanged.length > 0 ? `Files: ${filesChanged.join(", ")}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    await this.safeAppendFile(this.filePath("changeLog"), entry + "\n");
-  }
-
-  // ── Error log writer ──────────────────────────────────────────────────────
-
-  async recordErrorToFile(error: string, resolved = false): Promise<void> {
-    const now = new Date().toISOString();
-    const status = resolved ? "[RESOLVED]" : "[OPEN]";
-    const entry = `\n- ${now} ${status} ${error}`;
-    await this.safeAppendFile(this.filePath("errorLog"), entry);
-  }
 }
 
 export const continuitySyncService = new ContinuitySyncService();

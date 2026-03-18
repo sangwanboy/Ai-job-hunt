@@ -2,31 +2,44 @@ import { NextResponse } from "next/server";
 import { continuitySyncService } from "@/lib/services/agent/continuity-sync-service";
 import { runtimeSettingsStore } from "@/lib/services/settings/runtime-settings-store";
 
-function resolveAgentId(rawAgentId: string): string {
+async function resolveAgentId(rawAgentId: string): Promise<string> {
   const normalized = rawAgentId.trim().toLowerCase();
-  if (normalized === "atlas") {
+  
+  // 1. Check known keys
+  if (normalized === "atlas" || normalized === "job_scout") {
+    try {
+      const { prisma } = await import("@/lib/db");
+      const agent = await prisma.agent.findFirst({
+        where: { key: "job_scout" },
+        select: { id: true }
+      });
+      if (agent) return agent.id;
+    } catch { /* fallback */ }
     return "job_scout";
   }
+  
   return rawAgentId;
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agentId");
+  const sessionId = searchParams.get("sessionId") || "default";
 
   if (!agentId) {
     return NextResponse.json({ error: "agentId query param required" }, { status: 400 });
   }
 
-  const resolvedAgentId = resolveAgentId(agentId);
+  const resolvedAgentId = await resolveAgentId(agentId);
 
-  const summary = continuitySyncService.getSyncSummary(resolvedAgentId);
-  const state = continuitySyncService.getContinuityState(resolvedAgentId);
+  const summary = continuitySyncService.getSyncSummary(resolvedAgentId, sessionId);
+  const state = continuitySyncService.getContinuityState(resolvedAgentId, sessionId);
   const runtimeSelection = runtimeSettingsStore.get("local-dev-user");
 
   return NextResponse.json({
     agentId,
     resolvedAgentId,
+    sessionId,
     summary,
     usage: {
       totalTokens: runtimeSelection.usage.totalTokens,
@@ -57,11 +70,9 @@ export async function GET(request: Request) {
         operatingAssumptions: state.mind.operatingAssumptions,
       },
       memory: {
-        userPreferences: state.memory.userPreferences,
-        jobContext: state.memory.jobContext,
-        todos: state.memory.todos,
-        learnedPatterns: state.memory.learnedPatterns,
-        summaries: state.memory.summaries,
+        // High-level sync disabled as per user request
+        summaries: [],
+        todos: [],
       },
       history: {
         recentTurnCount: state.history.recentTurns.length,
@@ -78,23 +89,24 @@ export async function POST(request: Request) {
   try {
     const json = (await request.json()) as Record<string, unknown>;
     const agentId = typeof json.agentId === "string" ? json.agentId : null;
+    const sessionId = typeof json.sessionId === "string" ? json.sessionId : "default";
 
     if (!agentId) {
       return NextResponse.json({ error: "agentId required in body" }, { status: 400 });
     }
 
-    const resolvedAgentId = resolveAgentId(agentId);
+    const resolvedAgentId = await resolveAgentId(agentId);
 
     const triggerType = json.triggerType === "context-checkpoint" ? "context-checkpoint" : "major-step-post";
     const description = typeof json.description === "string" ? json.description : "Manual sync triggered";
 
-    await continuitySyncService.syncAll(resolvedAgentId, triggerType, {
+    await continuitySyncService.syncAll(resolvedAgentId, sessionId, triggerType, {
       stepDescription: description,
       nextIntendedStep: typeof json.nextStep === "string" ? json.nextStep : "Awaiting next user message.",
     });
 
-    const summary = continuitySyncService.getSyncSummary(resolvedAgentId);
-    return NextResponse.json({ synced: true, agentId, resolvedAgentId, summary });
+    const summary = continuitySyncService.getSyncSummary(resolvedAgentId, sessionId);
+    return NextResponse.json({ synced: true, agentId, resolvedAgentId, sessionId, summary });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Sync error";
     return NextResponse.json({ error: message }, { status: 400 });

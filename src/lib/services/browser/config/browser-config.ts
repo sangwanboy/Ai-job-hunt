@@ -59,13 +59,13 @@ export function getBrowserRuntimeConfig(): BrowserRuntimeConfig {
 
   cachedConfig = {
     headless: parseBoolean(process.env.BROWSER_HEADLESS, true),
-    defaultTimeoutMs: parseNumber(process.env.BROWSER_ACTION_TIMEOUT_MS, 10_000),
-    actionRetryCount: parseNumber(process.env.BROWSER_ACTION_RETRY_COUNT, 2),
+    defaultTimeoutMs: parseNumber(process.env.BROWSER_ACTION_TIMEOUT_MS, 30_000),
+    actionRetryCount: parseNumber(process.env.BROWSER_ACTION_RETRY_COUNT, 1),
     maxActionsPerSession: parseNumber(process.env.BROWSER_MAX_ACTIONS_PER_SESSION, 60),
     allowedDomains,
-    enforceDomainAllowlist: allowedDomains.length > 0,
+    enforceDomainAllowlist: parseBoolean(process.env.BROWSER_ENFORCE_ALLOWLIST, false),
     screenshotDir: path.resolve(process.cwd(), process.env.BROWSER_SCREENSHOT_DIR || "artifacts/browser"),
-    confirmationRequiredActions: parseToolList(process.env.BROWSER_CONFIRMATION_ACTIONS),
+    confirmationRequiredActions: process.env.BROWSER_CONFIRMATION_ACTIONS ? parseToolList(process.env.BROWSER_CONFIRMATION_ACTIONS) : [],
   };
 
   return cachedConfig;

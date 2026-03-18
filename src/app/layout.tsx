@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Job Intelligence Dashboard",
+  title: "JOB OS",
   description: "Production-minded job intelligence and outreach SaaS with stateful AI agents.",
 };
 

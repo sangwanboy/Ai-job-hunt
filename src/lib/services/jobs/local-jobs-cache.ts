@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { ApplicationStatus, Priority, WorkMode } from "@/lib/domain/enums";
 
 export type LocalJobRecord = {
@@ -15,36 +17,70 @@ export type LocalJobRecord = {
   sourceUrl?: string;
 };
 
-const localState = globalThis as unknown as {
-  localJobRecords?: LocalJobRecord[];
-};
+const MEMORY_DIR = path.join(process.cwd(), "project_memory");
+const JOBS_FILE = path.join(MEMORY_DIR, "local_jobs.json");
 
-const cache = localState.localJobRecords ?? [];
-localState.localJobRecords = cache;
+function ensureDirectory() {
+  if (!fs.existsSync(MEMORY_DIR)) {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+  }
+}
+
+function readJobs(): LocalJobRecord[] {
+  try {
+    ensureDirectory();
+    if (!fs.existsSync(JOBS_FILE)) return [];
+    const content = fs.readFileSync(JOBS_FILE, "utf-8");
+    return JSON.parse(content) as LocalJobRecord[];
+  } catch (error) {
+    console.error("[localJobsCache] Failed to read jobs:", error);
+    return [];
+  }
+}
+
+function writeJobs(jobs: LocalJobRecord[]) {
+  try {
+    ensureDirectory();
+    fs.writeFileSync(JOBS_FILE, JSON.stringify(jobs, null, 2), "utf-8");
+  } catch (error) {
+    console.error("[localJobsCache] Failed to write jobs:", error);
+  }
+}
 
 export const localJobsCache = {
   list(): LocalJobRecord[] {
-    return [...cache];
+    return readJobs();
   },
   upsert(job: LocalJobRecord): void {
+    const cache = readJobs();
     const index = cache.findIndex((item) => item.id === job.id);
     if (index >= 0) {
       cache[index] = job;
-      return;
+    } else {
+      cache.unshift(job);
     }
-    cache.unshift(job);
+    writeJobs(cache);
   },
   upsertMany(jobs: LocalJobRecord[]): void {
+    const cache = readJobs();
     for (const job of jobs) {
-      this.upsert(job);
+      const index = cache.findIndex((item) => item.id === job.id);
+      if (index >= 0) {
+        cache[index] = job;
+      } else {
+        cache.unshift(job);
+      }
     }
+    writeJobs(cache);
   },
   updateStatus(jobId: string, status: ApplicationStatus): LocalJobRecord | null {
+    const cache = readJobs();
     const index = cache.findIndex((item) => item.id === jobId);
     if (index < 0) {
       return null;
     }
     cache[index] = { ...cache[index], status };
+    writeJobs(cache);
     return cache[index];
   },
 };
