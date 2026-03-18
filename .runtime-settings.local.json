@@ -21,9 +21,9 @@
         "completionTokens": 0
       },
       "gemini": {
-        "requests": 110,
-        "promptTokens": 2249,
-        "completionTokens": 10501
+        "requests": 147,
+        "promptTokens": 3632,
+        "completionTokens": 19362
       },
       "groq": {
         "requests": 0,
@@ -66,6 +66,75 @@
         "completionTokens": 0
       }
     },
-    "updatedAt": "2026-03-17T12:06:46.235Z"
+    "updatedAt": "2026-03-18T16:36:41.699Z"
+  },
+  "local-dev-user-id": {
+    "monthlyTokenBudget": 1000000,
+    "softLimitPercent": 85,
+    "perResponseTokenCap": 8192,
+    "autoSummarizeOnHighUsage": true,
+    "strictLoopProtection": true,
+    "strictAgentResponseMode": true,
+    "allowProviderFallback": true,
+    "redactPiiInMemory": true,
+    "usagePeriodStart": "2026-03-17T17:19:59.070Z",
+    "usageByProvider": {
+      "openai": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "anthropic": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "gemini": {
+        "requests": 23,
+        "promptTokens": 631,
+        "completionTokens": 2375
+      },
+      "groq": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "mistral": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "cohere": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "perplexity": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "xai": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "deepseek": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "together": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      },
+      "openrouter": {
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0
+      }
+    },
+    "updatedAt": "2026-03-17T22:03:41.158Z"
   }
 }
