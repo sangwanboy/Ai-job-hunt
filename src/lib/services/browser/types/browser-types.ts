@@ -128,7 +128,7 @@ export type BrowserToolResultMap = {
   browser_type: { sessionId: string; pageId: string; selector: string; typedLength: number };
   browser_scroll: { sessionId: string; pageId: string; x: number; y: number };
   browser_extract_text: { sessionId: string; pageId: string; text: string; length: number };
-  browser_extract_jobs: { sessionId: string; pageId: string; jobs: Array<{ title?: string; company?: string; location?: string; link?: string }> };
+  browser_extract_jobs: { sessionId: string; pageId: string; jobs: Array<{ title?: string; company?: string; location?: string; link?: string; salary?: string; datePosted?: string; description?: string; skills?: string }> };
   browser_screenshot: { sessionId: string; pageId: string; filePath: string };
   browser_close_session: { sessionId: string; closed: boolean };
 };

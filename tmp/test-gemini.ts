@@ -1,30 +1,28 @@
-import { env } from '../src/lib/config/env';
+import { config } from "dotenv";
+config();
 
 async function testGemini() {
-  const apiKey = 'AIzaSyACl2XjSOuO8tnCdKnYscDKHANLua-GYAE'; // Using the key directly to avoid any env loading issues
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
-
-  const body = {
-    contents: [{ parts: [{ text: "Hello, confirm you are working." }] }]
-  };
-
-  console.log(`Testing key: ${apiKey.slice(0, 10)}...`);
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error("No GEMINI_API_KEY in .env");
+    return;
+  }
   
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      console.error("Gemini API Error:", JSON.stringify(data, null, 2));
-    } else {
-      console.log("Gemini API Success:", JSON.stringify(data, null, 2));
-    }
-  } catch (error) {
-    console.error("Fetch Error:", error);
+  console.log("Testing API key starting with:", apiKey.slice(0, 8) + "...");
+  
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: "Hello" }] }]
+    })
+  });
+  
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`Error ${res.status}:`, err);
+  } else {
+    console.log("Success! API key works.");
   }
 }
 

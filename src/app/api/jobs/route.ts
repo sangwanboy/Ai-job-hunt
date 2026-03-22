@@ -14,6 +14,9 @@ const createJobSchema = z.object({
   source: z.string().min(1),
   status: z.enum(applicationStatuses).optional(),
   priority: z.enum(priorities).optional(),
+  description: z.string().optional(),
+  skills: z.string().optional(),
+  datePosted: z.string().optional(),
 });
 
 async function ensureLocalDevUser() {
@@ -129,6 +132,9 @@ export async function POST(request: Request) {
           currency: payload.salary ? "GBP" : undefined,
           applicationStatus: payload.status ?? "SAVED",
           priority: payload.priority ?? "MEDIUM",
+          descriptionRaw: payload.description,
+          requiredSkills: payload.skills ? payload.skills.split(",").map(s => s.trim()) : [],
+          // postedDate: payload.datePosted ? new Date(payload.datePosted) : undefined,
         },
         select: {
           id: true,

@@ -261,32 +261,38 @@ export class BrowserService {
 
       const jobs = await resolved.page.evaluate((sel: string) => {
         const container = document.querySelector(sel) || document.body;
-        const items = Array.from(container.querySelectorAll(".job, [data-job], article, .card")).filter(el => {
+        const items = Array.from(container.querySelectorAll("li, .job, [data-job], article, .card, [data-occludable-job-id]")).filter(el => {
           const text = el.textContent?.toLowerCase() || "";
-          return text.includes("job") || text.includes("career") || text.includes("position") || text.includes("engineer") || text.includes("developer");
+          return text.includes("job") || text.includes("career") || text.includes("position") || text.includes("engineer") || text.includes("developer") || el.hasAttribute("data-job-id") || el.hasAttribute("data-occludable-job-id");
         });
 
         if (items.length === 0) {
-          return Array.from(document.querySelectorAll("a")).filter(a => {
-            const href = a.href.toLowerCase();
-            return href.includes("/job/") || href.includes("/careers/") || href.includes("/vacancy/");
-          }).slice(0, 10).map(a => ({
-            title: a.textContent?.trim() || "Unknown Position",
-            link: a.href,
-          }));
+          return [];
         }
 
         return items.slice(0, 15).map(item => {
           const titleEl = item.querySelector("h1, h2, h3, h4, .title, [class*='title']");
           const companyEl = item.querySelector(".company, [class*='company'], .brand");
           const locationEl = item.querySelector(".location, [class*='location'], .address");
-          const linkEl = item.querySelector("a");
+          let linkEl = item.querySelector("h1 a, h2 a, h3 a, h4 a, .title a, [class*='title'] a, a[href*='/job/view/'], a[href*='/job'], a[href*='/career'], a[href*='/role']") as HTMLAnchorElement | null;
+          if (!linkEl) {
+            linkEl = item.querySelector("a");
+          }
+
+          const salaryEl = item.querySelector(".salary, [class*='salary'], [class*='compensation'], [class*='pay']");
+          const dateEl = item.querySelector(".date, [class*='time'], [class*='posted'], time");
+          const descEl = item.querySelector(".description, [class*='summary'], [class*='desc'], p");
+          let skills = Array.from(item.querySelectorAll(".skills, [class*='tag'], [class*='badge'], [class*='pill'], li")).map(el => el.textContent?.trim()).filter(Boolean).slice(0, 5).join(", ");
 
           return {
             title: titleEl?.textContent?.trim() || "Untitled Role",
             company: companyEl?.textContent?.trim() || "Unknown Company",
             location: locationEl?.textContent?.trim() || "Unknown Location",
             link: linkEl?.href || "",
+            salary: salaryEl?.textContent?.trim(),
+            datePosted: dateEl?.textContent?.trim(),
+            description: descEl?.textContent?.trim()?.slice(0, 300),
+            skills: skills || undefined
           };
         });
       }, selector);

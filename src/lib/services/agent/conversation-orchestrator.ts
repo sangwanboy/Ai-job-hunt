@@ -16,10 +16,36 @@ const maxToolRounds = 25;
 
 const toolIntentPattern = /(\bfind\b|\bsearch\b|\bjob\b|\bsave\b|\badd\b|\bcreate\b|\bnavigate\b|\bopen\b|\bclick\b|\bextract\b|\bbrowser\b)/i;
 
+// In-memory pending jobs store (session-scoped)
+type PendingJob = {
+  title: string;
+  company: string;
+  location: string;
+  url: string;
+  salary?: string;
+  source?: string;
+};
+const pendingJobsStore = new Map<string, PendingJob[]>();
+
 const toolDescriptors = [
   {
+    name: "preview_jobs",
+    description: "Preview jobs to show the user before importing. Parameters: { jobs: Array<{ title: string, company: string, location: string, url: string, salary?: string, source?: string }> }",
+    parameters: {
+      jobs: "Array<{ title: string, company: string, location: string, url: string, salary?: string, source?: string }>",
+    },
+  },
+  {
+    name: "import_pending_jobs",
+    description: "Import previously previewed jobs into the pipeline after user confirmation. Parameters: { action: 'import_all' | 'import_selected', indices?: number[] }",
+    parameters: {
+      action: "string",
+      indices: "number[]?",
+    },
+  },
+  {
     name: "save_job",
-    description: "Save a job to the user's Jobs list. Parameters: { title: string, company: string, location: string, salary?: string, url?: string, source?: string }",
+    description: "Directly save a single job to the pipeline. Use only when user explicitly asks to add one specific job. Parameters: { title: string, company: string, location: string, salary?: string, url?: string, source?: string }",
     parameters: {
       title: "string",
       company: "string",
@@ -84,6 +110,30 @@ const saveJobToolSchema = z.object({
   source: z.string().default("Agent Search"),
   status: z.string().optional(),
   priority: z.string().optional(),
+  description: z.string().optional(),
+  skills: z.string().optional(),
+  datePosted: z.string().optional(),
+});
+
+const previewJobSchema = z.object({
+  title: z.string().min(1),
+  company: z.string().min(1),
+  location: z.string().min(1),
+  url: z.string().min(1),
+  salary: z.string().optional(),
+  source: z.string().default("Agent Search"),
+  description: z.string().optional(),
+  skills: z.string().optional(),
+  datePosted: z.string().optional(),
+});
+
+const previewJobsToolSchema = z.object({
+  jobs: z.array(previewJobSchema).min(1),
+});
+
+const importPendingJobsSchema = z.object({
+  action: z.enum(["import_all", "import_selected"]),
+  indices: z.array(z.number()).optional(),
 });
 
 type ToolCall = {
@@ -304,11 +354,52 @@ function inferToolCallFromUserMessage(_input: string): ToolCall | null {
   return null;
 }
 
+// Track the current session for pending jobs (set during orchestrator run)
+let currentOrchestratorSessionId = "default";
+
 async function executeToolCall(toolCall: ToolCall): Promise<string> {
+  if (toolCall.tool === "preview_jobs") {
+    const params = previewJobsToolSchema.parse(toolCall.parameters);
+    // Store the jobs in pending buffer for this session
+    pendingJobsStore.set(currentOrchestratorSessionId, params.jobs);
+    const jobList = params.jobs.map((j, i) => `${i + 1}. **${j.title}** at ${j.company} (${j.location})${j.salary ? ` — ${j.salary}` : ""}`).join("\n");
+    return `__PREVIEW_JOBS__${JSON.stringify(params.jobs)}__END_PREVIEW__\n\nPreviewed ${params.jobs.length} job(s) for user review:\n${jobList}\n\nWait for user confirmation before importing. Do NOT call save_job or import_pending_jobs yet.`;
+  }
+  if (toolCall.tool === "import_pending_jobs") {
+    const params = importPendingJobsSchema.parse(toolCall.parameters);
+    const pending = pendingJobsStore.get(currentOrchestratorSessionId);
+    if (!pending || pending.length === 0) {
+      return "No pending jobs to import. The user may need to search for jobs first.";
+    }
+    const jobsToImport = params.action === "import_all"
+      ? pending
+      : (params.indices || []).map(i => pending[i]).filter(Boolean);
+    
+    const results: string[] = [];
+    for (const job of jobsToImport) {
+      try {
+        const payload = await postInternalJson<{ success: boolean; job: { id: string; title: string; company: string } }>("/api/jobs", {
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          url: job.url,
+          salary: job.salary,
+          source: job.source || "Agent Search",
+        });
+        results.push(`✅ "${payload.job.title}" at ${payload.job.company} — saved`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        results.push(`❌ "${job.title}" at ${job.company} — failed: ${msg}`);
+      }
+    }
+    // Clear pending after import
+    pendingJobsStore.delete(currentOrchestratorSessionId);
+    return `Imported ${results.filter(r => r.startsWith("✅")).length}/${jobsToImport.length} jobs:\n${results.join("\n")}\n\nNow provide a MARKDOWN TABLE summary to the user.`;
+  }
   if (toolCall.tool === "save_job") {
     const params = saveJobToolSchema.parse(toolCall.parameters);
     const payload = await postInternalJson<{ success: boolean; job: { id: string; title: string; company: string } }>("/api/jobs", params);
-    return `Job saved: "${payload.job.title}" at ${payload.job.company} added to your pipeline. If you have more jobs to save, call save_job again for each one immediately.`;
+    return `Job saved: "${payload.job.title}" at ${payload.job.company} added to your pipeline.`;
   }
   if (browserToolNames.has(toolCall.tool as BrowserToolName)) {
     const payload = await postInternalJson<Record<string, unknown>>("/api/browser", {
@@ -325,6 +416,8 @@ function normalizeAgentReply(input: string): string {
   let text = input.trim();
   // Strip continuity update block but keep the rest
   text = text.replace(/<continuity_update>[\s\S]*?<\/continuity_update>/gi, "");
+  // Strip preview jobs markers (data is passed separately via pendingJobs field)
+  text = text.replace(/__PREVIEW_JOBS__[\s\S]*?__END_PREVIEW__/g, "");
   text = text.trim();
   
   if (!text) {
@@ -413,6 +506,9 @@ export class ConversationOrchestrator {
     let aiResponseText = "";
     let toolContext = "";
     const toolLogs: Array<{ tool: string; parameters: any; result: string }> = [];
+    
+    // Set the session context for pending jobs store
+    currentOrchestratorSessionId = sid;
 
     // Clean up historyContext string if it's the "No history" default
     const formattedHistory = (historyContext && historyContext !== "No history yet.") ? historyContext : null;
@@ -538,7 +634,10 @@ export class ConversationOrchestrator {
 
     await continuitySyncService.syncPostStep(agent.id, sid, "Generated", [], { mode: "READY" });
 
-    return { reply: normalizedReply, shouldWriteSummary: true, loopPrevented: false, tokenBudgetWarning: budget.warning, sessionId: effectiveSessionId, onboardingCompleted: true, continuitySynced: true, rehydrated, toolLogs };
+    // Extract pending jobs from the response for the frontend to render as preview cards
+    const pendingJobs = pendingJobsStore.get(sid) || null;
+    
+    return { reply: normalizedReply, shouldWriteSummary: true, loopPrevented: false, tokenBudgetWarning: budget.warning, sessionId: effectiveSessionId, onboardingCompleted: true, continuitySynced: true, rehydrated, toolLogs, pendingJobs };
   }
 }
 

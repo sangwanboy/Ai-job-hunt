@@ -64,74 +64,7 @@ async function main() {
     },
   });
 
-  const job1 = await prisma.job.create({
-    data: {
-      userId: user.id,
-      sourceId: linkedinSource.id,
-      source: "linkedin",
-      sourceUrl: "https://linkedin.com/jobs/view/1",
-      externalId: "ln-1",
-      title: "Senior Full-Stack Engineer",
-      companyId: companyA.id,
-      recruiterId: recruiter.id,
-      location: "London",
-      country: "UK",
-      workMode: "HYBRID",
-      salaryMin: 90000,
-      salaryMax: 120000,
-      currency: "GBP",
-      descriptionRaw: "Build internal AI products and customer-facing dashboard experiences.",
-      descriptionClean: "Build AI-assisted dashboards, own TypeScript services, and collaborate with product.",
-      requiredSkills: ["TypeScript", "React", "Node.js", "SQL"],
-      preferredSkills: ["Prisma", "Redis", "LLMs"],
-      applicationStatus: "SAVED",
-      priority: "HIGH",
-      aiSummary: "Strong match for SaaS and agent tooling experience.",
-    },
-  });
-
-  await prisma.job.create({
-    data: {
-      userId: user.id,
-      sourceId: csvSource.id,
-      source: "csv",
-      sourceUrl: "",
-      externalId: "csv-22",
-      title: "AI Product Engineer",
-      companyId: companyA.id,
-      location: "Remote",
-      country: "UK",
-      workMode: "REMOTE",
-      salaryMin: 85000,
-      salaryMax: 115000,
-      currency: "GBP",
-      descriptionRaw: "Ship LLM workflows and customer-facing features quickly.",
-      descriptionClean: "Lead AI feature delivery, evaluate prompts, and improve customer outcomes.",
-      requiredSkills: ["Prompt Engineering", "TypeScript", "Product Thinking"],
-      preferredSkills: ["OpenAI", "Analytics", "B2B SaaS"],
-      applicationStatus: "NEW",
-      priority: "MEDIUM",
-    },
-  });
-
-  await prisma.jobScore.create({
-    data: {
-      jobId: job1.id,
-      userId: user.id,
-      totalScore: 82,
-      confidence: 0.86,
-      explanation: "High skills overlap and strong salary/location fit.",
-      factorBreakdown: {
-        titleSimilarity: 0.88,
-        skillsOverlap: 0.85,
-        locationFit: 0.7,
-        salaryFit: 0.9,
-        postingFreshness: 0.75,
-      },
-      anomalies: [],
-      missingDataPenalty: 3,
-    },
-  });
+  // Mock jobs removed per user request
 
   const scout = await prisma.agent.create({
     data: {

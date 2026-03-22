@@ -34,4 +34,11 @@ export const activeAgent: AgentProfile = {
   responseBudgetTokens: 1800,
 };
 
-export const initialChat: ChatMessageView[] = [];
+export const initialChat: ChatMessageView[] = [
+  {
+    id: "greeting-msg",
+    role: "ASSISTANT",
+    content: "Hello! I'm Atlas. What kind of roles are you looking for today? Give me some details (e.g. title, remote/onsite, industry) and I'll start fetching jobs for you to review.",
+    createdAt: new Date().toISOString(),
+  }
+];

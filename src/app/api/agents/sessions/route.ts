@@ -7,6 +7,11 @@ export async function GET(request: Request) {
   const agentId = searchParams.get("agentId");
   const sessionId = searchParams.get("sessionId");
   try {
+    if (sessionId) {
+      const messages = await agentStore.getSessionMessages(sessionId);
+      return NextResponse.json({ messages });
+    }
+
     let userId = "local-dev-user";
     try {
       let user = await prisma.user.findFirst({
@@ -24,11 +29,6 @@ export async function GET(request: Request) {
       userId = user.id;
     } catch (dbError) {
       console.warn("[API/Sessions] Database unreachable, falling back to mock user ID:", dbError instanceof Error ? dbError.message : "Unknown error");
-    }
-
-    if (sessionId) {
-      const messages = await agentStore.getSessionMessages(sessionId);
-      return NextResponse.json({ messages });
     }
 
     if (agentId) {

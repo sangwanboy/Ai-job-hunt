@@ -10,8 +10,8 @@ const browserRequestSchema = z.object({
     "click",
     "type",
     "scroll",
-    "snapshot",
-    "extract",
+    "screenshot",
+    "extract_text",
     "extract_jobs",
     "close"
   ]),
@@ -25,8 +25,8 @@ const actionToToolMap: Record<string, BrowserToolName> = {
   click: "browser_click",
   type: "browser_type",
   scroll: "browser_scroll",
-  snapshot: "browser_screenshot",
-  extract: "browser_extract_text",
+  screenshot: "browser_screenshot",
+  extract_text: "browser_extract_text",
   extract_jobs: "browser_extract_jobs",
   close: "browser_close_session"
 };

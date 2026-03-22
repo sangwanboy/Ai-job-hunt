@@ -23,6 +23,7 @@ export type AgentRuntimeResponse = {
   continuitySynced?: boolean;
   rehydrated?: boolean;
   toolLogs?: Array<{ tool: string; parameters: any; result: string }>;
+  pendingJobs?: Array<{ title: string; company: string; location: string; url: string; salary?: string; source?: string }> | null;
 };
 
 export type RegisteredAgent = {
