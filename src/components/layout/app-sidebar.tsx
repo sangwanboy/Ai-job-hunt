@@ -18,7 +18,8 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const [runtime, setRuntime] = (typeof window !== "undefined") ? useState<RuntimeSettingsResponse | null>(null) : [null, () => {}];
+  const [runtime, setRuntime] = useState<RuntimeSettingsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -30,9 +31,11 @@ export function AppSidebar() {
         }
       } catch {
         // Ignore fetch errors in local dev/degraded mode
+      } finally {
+        setIsLoading(false);
       }
     }
-    load();
+    void load();
     const interval = setInterval(load, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -74,16 +77,29 @@ export function AppSidebar() {
 
       <div className="mt-8 space-y-4">
         <div className="rounded-2xl border border-white/60 bg-white/70 p-3 text-xs">
-          <div className="flex items-center justify-between mb-2">
-            <p className="font-bold text-text">Token Usage</p>
-            <span className="text-[10px] font-medium text-muted">{percentage}% of monthly cap</span>
-          </div>
-          <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
-            <div className="h-full bg-cyan-500 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }} />
-          </div>
-          <p className="mt-2 text-[10px] text-muted">
-            {usageDisplay} / {budgetLabel} tokens used
-          </p>
+          {isLoading && !runtime ? (
+            <div className="space-y-2 animate-pulse">
+              <div className="flex items-center justify-between mb-2">
+                <div className="h-3 w-20 bg-slate-200 rounded" />
+                <div className="h-3 w-24 bg-slate-200 rounded" />
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-slate-200" />
+              <div className="h-3 w-28 bg-slate-200 rounded mt-2" />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-bold text-text">Token Usage</p>
+                <span className="text-[10px] font-medium text-muted">{percentage}% of monthly cap</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                <div className="h-full bg-cyan-500 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }} />
+              </div>
+              <p className="mt-2 text-[10px] text-muted">
+                {usageDisplay} / {budgetLabel} tokens used
+              </p>
+            </>
+          )}
         </div>
 
         <div className="rounded-2xl border border-white/60 bg-white/70 p-3 text-xs text-muted">
@@ -94,3 +110,4 @@ export function AppSidebar() {
     </aside>
   );
 }
+

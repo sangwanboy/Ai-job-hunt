@@ -56,7 +56,7 @@ export type IdentityLayer = {
 };
 
 export type MindLayer = {
-  currentTaskState: string;
+  mode: "READY" | "SEARCH" | "EVALUATION" | "OUTREACH";
   reasoningMode: string;
   workflowPlan: string[];
   loopPreventionState: string;
@@ -65,7 +65,7 @@ export type MindLayer = {
   pendingActions: string[];
   activeToolIntentions: string[];
   operatingAssumptions: string[];
-  todos: string[];
+  todos: Array<{ description: string; mode: string; status: "pending" | "in-progress" | "blocked" | "done" | "cancelled" }>;
 };
 
 export type MemoryLayer = {
@@ -123,6 +123,7 @@ const MEMORY_DIR = "project_memory";
 const PROJECT_MEMORY_FILES = {
   agentContext: path.join(MEMORY_DIR, "agent_context.md"),
   syncLog: path.join(MEMORY_DIR, "agent_sync_log.md"),
+  agentManifest: path.join(MEMORY_DIR, "agent.md"),
 } as const;
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -171,7 +172,7 @@ function defaultIdentity(): IdentityLayer {
 
 function defaultMind(): MindLayer {
   return {
-    currentTaskState: "idle",
+    mode: "READY",
     reasoningMode: "standard",
     workflowPlan: [],
     loopPreventionState: "clear",
@@ -231,6 +232,32 @@ globalRef.continuitySyncStates = continuitySyncStates;
 // ─── ContinuitySyncService ────────────────────────────────────────────────────
 
 export class ContinuitySyncService {
+  private formatStateAsMarkdown(state: ContinuityState): string {
+    return [
+      `# Atlas Agent Manifest`,
+      `*Last Synced: ${state.lastSyncedAt}*`,
+      "",
+      `## SOUL`,
+      `- **Mission**: ${state.soul.mission}`,
+      `- **Values**: ${state.soul.values.join(", ")}`,
+      "",
+      `## IDENTITY`,
+      `- **Name**: ${state.identity.name}`,
+      `- **Persona**: ${state.identity.persona}`,
+      `- **Tone**: ${state.identity.tone}`,
+      "",
+      `## MIND`,
+      `- **Mode**: ${state.mind.mode}`,
+      `- **Strategy**: ${state.mind.currentStrategy}`,
+      `- **Todos**:`,
+      ...state.mind.todos.map(t => `  - [${t.status === "done" ? "x" : " "}] ${t.description} (${t.mode})`),
+      "",
+      `## SYNC STATE`,
+      `- **Alignment**: ${state.alignmentStatus}`,
+      `- **Resume Point**: ${state.safeResumePoint}`,
+    ].join("\n");
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   private getState(agentId: string, sessionId = "default"): ContinuityState {
@@ -428,10 +455,13 @@ export class ContinuitySyncService {
 
     this.setState(updated, sessionId);
 
+    // 6. Write agent.md manifest
+    const manifest = this.formatStateAsMarkdown(updated);
+    await this.safeWriteFile(this.filePath("agentManifest"), manifest);
+
     // 7. Write sync log
-    const filesRead = [PROJECT_MEMORY_FILES.agentContext];
-    const filesUpdated = [...(options.filesChanged ?? [])];
-    filesUpdated.push(PROJECT_MEMORY_FILES.syncLog);
+    const filesRead = [PROJECT_MEMORY_FILES.agentManifest];
+    const filesUpdated = [PROJECT_MEMORY_FILES.agentManifest, PROJECT_MEMORY_FILES.syncLog];
 
     await this.writeSyncLogEntry({
       timestamp: now,
@@ -440,7 +470,7 @@ export class ContinuitySyncService {
       sessionId,
       filesRead,
       filesUpdated,
-      whatChanged: options.stepDescription ?? "Full continuity sync performed.",
+      whatChanged: options.stepDescription ?? "Full continuity sync performed (agent.md).",
       safeResumePoint: updated.safeResumePoint,
       nextIntendedStep: options.nextIntendedStep ?? "Awaiting next user message.",
       alignmentStatus: updated.alignmentStatus,
@@ -471,8 +501,15 @@ export class ContinuitySyncService {
       return { rehydrated: false };
     }
 
-    // Perform full rehydration: re-read all project memory files
+    // Perform full rehydration: prioritize agent.md
     const filesRead: string[] = [];
+    const agentManifestContent = await this.safeReadFile(this.filePath("agentManifest"));
+    if (agentManifestContent) {
+      filesRead.push(PROJECT_MEMORY_FILES.agentManifest);
+      // Logic to parse the markdown manifest could be added here to fully restore state
+      // For now, we rely on the in-memory syncAll to re-establish the baseline
+    }
+
     const agentContextContent = await this.safeReadFile(this.filePath("agentContext"));
     if (agentContextContent) filesRead.push(PROJECT_MEMORY_FILES.agentContext);
 
@@ -619,10 +656,11 @@ export class ContinuitySyncService {
 
   // ── Memory management ─────────────────────────────────────────────────────
 
-  addTodo(agentId: string, sessionId: string, todo: string): void {
+  addTodo(agentId: string, sessionId: string, description: string, mode = "READY"): void {
     const state = this.getState(agentId, sessionId);
-    if (!state.mind.todos.includes(todo)) {
-      state.mind.todos = [...state.mind.todos, todo];
+    const exists = state.mind.todos.some((t) => t.description === description);
+    if (!exists) {
+      state.mind.todos.push({ description, mode, status: "pending" });
       this.setState(state, sessionId);
     }
   }

@@ -21,9 +21,9 @@
         "completionTokens": 0
       },
       "gemini": {
-        "requests": 147,
-        "promptTokens": 3632,
-        "completionTokens": 19362
+        "requests": 178,
+        "promptTokens": 4243,
+        "completionTokens": 22588
       },
       "groq": {
         "requests": 0,
@@ -66,7 +66,7 @@
         "completionTokens": 0
       }
     },
-    "updatedAt": "2026-03-18T16:36:41.699Z"
+    "updatedAt": "2026-03-22T01:41:37.662Z"
   },
   "local-dev-user-id": {
     "monthlyTokenBudget": 1000000,

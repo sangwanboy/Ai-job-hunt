@@ -12,7 +12,7 @@ import { agentRegistry } from "@/lib/services/agent/registry";
 import { tokenBudgetManager } from "@/lib/services/agent/token-budget-manager";
 import type { AgentRuntimeContext, AgentRuntimeResponse } from "@/lib/services/agent/types";
 
-const maxToolRounds = 4;
+const maxToolRounds = 25;
 
 const toolIntentPattern = /(\bfind\b|\bsearch\b|\bjob\b|\bsave\b|\badd\b|\bcreate\b|\bnavigate\b|\bopen\b|\bclick\b|\bextract\b|\bbrowser\b)/i;
 
@@ -200,42 +200,90 @@ async function postInternalJson<TResponse extends Record<string, unknown>>(
 }
 
 function extractToolCalls(input: string): ToolCall[] {
-  const candidates: string[] = [];
   const results: ToolCall[] = [];
-  const mdMatches = Array.from(input.matchAll(/```json\s*([\s\S]*?)```/gi), (match) => match[1]);
-  candidates.push(...mdMatches);
+  const candidates: string[] = [];
 
-  let braceCount = 0;
-  let currentBlock = "";
-  let insideString = false;
-  let escapeNext = false;
+  // Strategy 1: Extract JSON from markdown code fences (```json ... ``` or ``` ... ```)
+  const fencedMatches = Array.from(
+    input.matchAll(/```(?:json)?\s*\n?([\s\S]*?)\n?```/gi),
+    (match) => match[1].trim()
+  );
+  candidates.push(...fencedMatches);
+
+  // Strategy 2: Brace-matching for bare JSON objects in text
+  let braceDepth = 0;
+  let blockStart = -1;
+  let inString = false;
+  let escaped = false;
 
   for (let i = 0; i < input.length; i++) {
-    const char = input[i];
-    if (escapeNext) { currentBlock += char; escapeNext = false; continue; }
-    if (char === "\\") { currentBlock += char; escapeNext = true; continue; }
-    if (char === '"') { insideString = !insideString; currentBlock += char; continue; }
+    const ch = input[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\' && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
 
-    if (!insideString) {
-      if (char === "{") { braceCount++; currentBlock += char; }
-      else if (char === "}") {
-        braceCount--;
-        currentBlock += char;
-        if (braceCount === 0 && currentBlock.includes("{")) {
-          candidates.push(currentBlock);
-          currentBlock = "";
+    if (ch === '{') {
+      if (braceDepth === 0) blockStart = i;
+      braceDepth++;
+    } else if (ch === '}') {
+      braceDepth--;
+      if (braceDepth === 0 && blockStart >= 0) {
+        const block = input.slice(blockStart, i + 1);
+        // Only consider blocks that look like tool calls (contain "tool" or "name")
+        if (block.includes('"tool"') || block.includes('"name"') || block.includes('"function_call"')) {
+          candidates.push(block);
         }
-      } else if (braceCount > 0) { currentBlock += char; }
-    } else { currentBlock += char; }
+        blockStart = -1;
+      }
+    }
   }
 
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      const normalized = normalizeToolCallCandidate(parsed);
-      if (normalized) results.push(normalized);
-    } catch { continue; }
+  // Strategy 3: Regex fallback for common tool call patterns
+  const regexPatterns = [
+    /\{\s*"tool"\s*:\s*"[^"]+"\s*,\s*"parameters"\s*:\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}\s*\}/g,
+    /\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}\s*\}/g,
+  ];
+  for (const pattern of regexPatterns) {
+    for (const match of input.matchAll(pattern)) {
+      candidates.push(match[0]);
+    }
   }
+
+  // Deduplicate and parse
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const normalized = normalizeToolCallCandidate(parsed);
+      if (normalized) {
+        results.push(normalized);
+        console.log(`[Orchestrator] ✓ Extracted tool call: ${normalized.tool}`, JSON.stringify(normalized.parameters).slice(0, 200));
+      }
+    } catch {
+      // Try to fix common JSON issues (trailing commas, etc.)
+      try {
+        const cleaned = trimmed.replace(/,\s*([}\]])/g, '$1');
+        const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+        const normalized = normalizeToolCallCandidate(parsed);
+        if (normalized) {
+          results.push(normalized);
+          console.log(`[Orchestrator] ✓ Extracted tool call (cleaned): ${normalized.tool}`);
+        }
+      } catch {
+        console.log(`[Orchestrator] ✗ Failed to parse candidate:`, trimmed.slice(0, 200));
+      }
+    }
+  }
+
+  if (results.length === 0 && (input.includes('"tool"') || input.includes('save_job') || input.includes('browser_'))) {
+    console.log(`[Orchestrator] ⚠ Response appears to contain tool intent but no tool calls were extracted.`);
+    console.log(`[Orchestrator] Response preview:`, input.slice(0, 500));
+  }
+
   return results;
 }
 
@@ -249,21 +297,10 @@ function extractContinuityUpdate(input: string): any | null {
   }
 }
 
-function inferToolCallFromUserMessage(input: string): ToolCall | null {
-  const text = input.trim();
-  const savePattern = /save (this )?job\s*:?\s*(.+?)\s+at\s+(.+?)\s+in\s+(.+?)(?:,|$)/i;
-  const saveMatch = text.match(savePattern);
-  if (saveMatch) {
-    return {
-      tool: "save_job",
-      parameters: {
-        title: saveMatch[2].trim(),
-        company: saveMatch[3].trim(),
-        location: saveMatch[4].trim(),
-        source: "Agent Chat",
-      },
-    };
-  }
+// Removed: inferToolCallFromUserMessage was too aggressive and contaminated
+// the pipeline with chat messages being saved as jobs.
+// The model now handles all tool calls through the extractToolCalls parser.
+function inferToolCallFromUserMessage(_input: string): ToolCall | null {
   return null;
 }
 
@@ -271,7 +308,7 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
   if (toolCall.tool === "save_job") {
     const params = saveJobToolSchema.parse(toolCall.parameters);
     const payload = await postInternalJson<{ success: boolean; job: { id: string; title: string; company: string } }>("/api/jobs", params);
-    return `I've added ${payload.job.title} at ${payload.job.company} to your Jobs list.`;
+    return `Job saved: "${payload.job.title}" at ${payload.job.company} added to your pipeline. If you have more jobs to save, call save_job again for each one immediately.`;
   }
   if (browserToolNames.has(toolCall.tool as BrowserToolName)) {
     const payload = await postInternalJson<Record<string, unknown>>("/api/browser", {
@@ -286,14 +323,15 @@ async function executeToolCall(toolCall: ToolCall): Promise<string> {
 
 function normalizeAgentReply(input: string): string {
   let text = input.trim();
-  // Strip continuity update block
+  // Strip continuity update block but keep the rest
   text = text.replace(/<continuity_update>[\s\S]*?<\/continuity_update>/gi, "");
   text = text.trim();
   
-  text = text.replace(/^(acknowledged|understood|got it|certainly|absolutely|great question|thanks for clarifying)[\s,.:;-]+/i, "");
-  text = text.replace(/\*\*(.*?)\*\*/g, "$1");
-  text = text.replace(/^#{1,6}\s+/gm, "");
-  return text.trim();
+  if (!text) {
+    return "Action performed. I'm updating my state.";
+  }
+  
+  return text;
 }
 
 export class ConversationOrchestrator {
@@ -356,7 +394,7 @@ export class ConversationOrchestrator {
           await agentStore.saveMessage({ sessionId: sid, role: "USER", content: context.message, tokenEstimate: Math.ceil(context.message.length / 4), agentId: agent.id, userId: effectiveUserId });
           await agentStore.saveMessage({ sessionId: sid, role: "ASSISTANT", content: onboardingResponse.reply, tokenEstimate: Math.ceil(onboardingResponse.reply.length / 4), agentId: agent.id, userId: effectiveUserId });
           continuitySyncService.addHistoryTurn(agent.id, sid, "ASSISTANT", onboardingResponse.reply);
-          await continuitySyncService.syncPostStep(agent.id, sid, "Onboarding step", [], { currentTaskState: "ready" });
+          await continuitySyncService.syncPostStep(agent.id, sid, "Onboarding step", [], { mode: "READY" });
         } catch {}
       }
       return { reply: onboardingResponse.reply, shouldWriteSummary: onboardingResponse.completed, loopPrevented: false, onboardingCompleted: onboardingResponse.completed, sessionId: effectiveSessionId, profileSnapshot: onboardingResponse.profileSnapshot, continuitySynced: true, rehydrated };
@@ -380,38 +418,107 @@ export class ConversationOrchestrator {
     const formattedHistory = (historyContext && historyContext !== "No history yet.") ? historyContext : null;
 
     for (let round = 0; round < maxToolRounds && !aiResponseText; round++) {
+      console.log(`[Orchestrator] === Tool Loop Round ${round + 1}/${maxToolRounds} ===`);
+
+      const continuationPrompt = round > 0
+        ? [
+            `ORIGINAL USER REQUEST (re-read this carefully): "${context.message}"`,
+            "",
+            `You have completed ${round} tool call(s) so far. You have ${maxToolRounds - round} rounds remaining.`,
+            "Analyze the tool results above. Compare them against the ORIGINAL USER REQUEST.",
+            "If ANY part of the user's request is NOT yet fulfilled, call the NEXT tool immediately.",
+            "For multi-step tasks (Step 1, Step 2, etc.), you MUST complete ALL steps before giving a final response.",
+            "Do NOT produce a summary table until ALL steps are done.",
+            "",
+            "Available tools: save_job, browser_navigate, browser_click, browser_extract_jobs, browser_type, browser_screenshot, browser_extract_text.",
+            "Output ONLY the JSON tool call: { \"tool\": \"name\", \"parameters\": { ... } }",
+            "Only after ALL parts of the request are complete should you provide a final summary to the user."
+          ].join("\n")
+        : null;
+
       const aiResponse = await provider.chat({
         systemPrompt,
         userPrompt: [
           formattedHistory ? `Previous conversation history:\n${formattedHistory}` : null,
           `User request: ${context.message}`,
-          toolContext ? `Tool results:\n${toolContext}` : null,
-          round > 0 ? "Review tools. If goal met, respond. If not, next tools." : null
+          toolContext ? `Tool results from previous steps:\n${toolContext}` : null,
+          continuationPrompt
         ].filter(Boolean).join("\n\n"),
         model: context.preferredModel ?? agent.model,
         temperature: 0.4,
         apiKey: context.apiKey,
       });
 
-      if (aiResponse.text.includes("failed:") || aiResponse.text.includes("API key missing")) { aiResponseText = aiResponse.text; break; }
+      console.log(`[Orchestrator] AI response (${aiResponse.text.length} chars):`, aiResponse.text.slice(0, 300));
+
+      // Only break on actual API errors from the provider, not content that mentions "failed"
+      if (aiResponse.text.startsWith("Gemini request failed:") || aiResponse.text.includes("[Gemini API key missing")) {
+        aiResponseText = aiResponse.text;
+        break;
+      }
+
       const toolCalls = extractToolCalls(aiResponse.text);
-      if (toolCalls.length === 0 && round === 0) { const inf = inferToolCallFromUserMessage(context.message); if (inf) toolCalls.push(inf); }
-      if (toolCalls.length === 0) { aiResponseText = aiResponse.text; break; }
+      console.log(`[Orchestrator] Extracted ${toolCalls.length} tool call(s) from round ${round + 1}`);
+
+      if (toolCalls.length === 0 && round === 0) {
+        const inf = inferToolCallFromUserMessage(context.message);
+        if (inf) {
+          toolCalls.push(inf);
+          console.log(`[Orchestrator] Inferred tool call from user message: ${inf.tool}`);
+        }
+      }
+
+      if (toolCalls.length === 0) {
+        // No tool calls — treat as final response
+        aiResponseText = aiResponse.text;
+        console.log(`[Orchestrator] No tool calls found, ending loop with text response`);
+        break;
+      }
 
       let turnRes = "";
       for (const call of toolCalls) {
         try {
+          console.log(`[Orchestrator] Executing tool: ${call.tool}`, JSON.stringify(call.parameters).slice(0, 200));
           const res = await executeToolCall(call);
           toolLogs.push({ tool: call.tool, parameters: call.parameters, result: res });
           turnRes += `\nTool: ${call.tool}\nResult: ${res}\n`;
           continuitySyncService.recordToolResult(agent.id, sid, `${call.tool}: ${res.slice(0, 300)}`);
-        } catch (e) { turnRes += `\nTool: ${call.tool}\nResult: Failed\n`; }
+          console.log(`[Orchestrator] ✓ Tool ${call.tool} succeeded:`, res.slice(0, 200));
+        } catch (e) {
+          const errorMsg = e instanceof Error ? e.message : "Unknown error";
+          console.error(`[Orchestrator] ✗ Tool ${call.tool} failed:`, errorMsg);
+          toolLogs.push({ tool: call.tool, parameters: call.parameters, result: `Error: ${errorMsg}` });
+          turnRes += `\nTool: ${call.tool}\nResult: Error — ${errorMsg}. Try a different approach or skip this step.\n`;
+        }
       }
       toolContext = (toolContext + "\n" + turnRes).trim();
     }
 
-    if (!aiResponseText && toolLogs.length > 0) aiResponseText = toolLogs[toolLogs.length - 1].result;
-    const isError = aiResponseText.includes("failed:") || aiResponseText.includes("API key missing");
+    // If the loop exhausted all rounds without a final text response, ask the LLM for a summary
+    if (!aiResponseText && toolLogs.length > 0) {
+      console.log(`[Orchestrator] Loop exhausted ${maxToolRounds} rounds with ${toolLogs.length} tool calls. Requesting final summary.`);
+      try {
+        const summaryResponse = await provider.chat({
+          systemPrompt: "You are a job search assistant. Summarize the actions you took and their results. Present saved jobs in a markdown table with columns: Title, Company, Location, URL, Status. Be concise.",
+          userPrompt: [
+            `Original user request: ${context.message}`,
+            `Tool execution log:\n${toolLogs.map((l, i) => `${i + 1}. ${l.tool}: ${l.result.slice(0, 200)}`).join("\n")}`,
+            "Provide a final summary response to the user with a markdown table of all saved jobs."
+          ].join("\n\n"),
+          model: context.preferredModel ?? agent.model,
+          temperature: 0.3,
+          apiKey: context.apiKey,
+        });
+        aiResponseText = summaryResponse.text;
+      } catch {
+        // Fallback: build a simple summary from tool logs
+        const savedJobs = toolLogs.filter(l => l.tool === "save_job");
+        aiResponseText = savedJobs.length > 0
+          ? `I completed ${toolLogs.length} actions and saved ${savedJobs.length} job(s) to your pipeline:\n\n${savedJobs.map((l, i) => `${i + 1}. ${l.result}`).join("\n")}`
+          : `I completed ${toolLogs.length} actions but was unable to save any jobs. Please try again with different search terms.`;
+      }
+    }
+    const isError = aiResponseText.startsWith("Gemini request failed:") || aiResponseText.includes("[Gemini API key missing");
     let normalizedReply = normalizeAgentReply(aiResponseText);
 
     if (effectiveUserId) {
@@ -429,7 +536,7 @@ export class ConversationOrchestrator {
       await continuitySyncService.syncLayersWithLlm(agent.id, sid, continuityUpdate);
     }
 
-    await continuitySyncService.syncPostStep(agent.id, sid, "Generated", [], { currentTaskState: "ready" });
+    await continuitySyncService.syncPostStep(agent.id, sid, "Generated", [], { mode: "READY" });
 
     return { reply: normalizedReply, shouldWriteSummary: true, loopPrevented: false, tokenBudgetWarning: budget.warning, sessionId: effectiveSessionId, onboardingCompleted: true, continuitySynced: true, rehydrated, toolLogs };
   }

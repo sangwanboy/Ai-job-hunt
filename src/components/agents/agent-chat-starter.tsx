@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
 import { activeAgent, initialChat } from "@/lib/mock/data";
 import type { SyncedAgentProfile } from "@/lib/services/agent/agent-profile-sync";
 import type { ChatMessageView } from "@/types/domain";
@@ -18,7 +19,7 @@ type SyncStatusResponse = {
   layers: {
     soul: { mission: string };
     identity: { name: string };
-    mind: { currentTaskState: string };
+    agent: { mode: string };
     memory: { summaries: string[]; todos: string[] };
     history: { recentTurnCount: number };
   };
@@ -46,7 +47,7 @@ export function AgentChatStarter() {
   const [messages, setMessages] = useState<ChatMessageView[]>(initialChat);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showToolUse, setShowToolUse] = useState(false);
+  const [showToolUse, setShowToolUse] = useState(true);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [sessions, setSessions] = useState<Array<{ id: string; title: string }>>([]);
   const [onboardingComplete, setOnboardingComplete] = useState(activeAgent.onboardingCompleted);
@@ -56,6 +57,8 @@ export function AgentChatStarter() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const urlSessionId = searchParams?.get("sessionId") || undefined;
+  /* Bug 10: Track when user explicitly starts a new chat to prevent auto-loading */
+  const newChatRef = useRef(false);
 
   useEffect(() => {
     const bottom = document.getElementById("chat-bottom");
@@ -76,7 +79,8 @@ export function AgentChatStarter() {
           setSessions(loadedSessions);
           
           // Auto-load most recent if we have no sessionId and no urlSessionId
-          if (!urlSessionId && !sessionId && loadedSessions.length > 0) {
+          // Bug 10: Don't auto-load if user explicitly started a new chat
+          if (!urlSessionId && !sessionId && loadedSessions.length > 0 && !newChatRef.current) {
             void switchSession(loadedSessions[0].id);
           }
         }
@@ -119,11 +123,13 @@ export function AgentChatStarter() {
 
   async function switchSession(id: string) {
     if (id === "new") {
+      newChatRef.current = true;
       setSessionId(undefined);
       setMessages(initialChat);
       router.push("/agents/workspace");
       return;
     }
+    newChatRef.current = false;
     
     // Prevent redundant loading if already on this session
     if (id === sessionId && messages.length > initialChat.length) {
@@ -228,13 +234,13 @@ export function AgentChatStarter() {
     ? [
         { label: "Soul", healthy: Boolean(syncStatus.layers.soul.mission) },
         { label: "Identity", healthy: Boolean(syncStatus.layers.identity.name) },
-        { label: "Mind", healthy: Boolean(syncStatus.layers.mind.currentTaskState) },
+        { label: "Agent", healthy: Boolean(syncStatus.layers.agent.mode) },
         { label: "History", healthy: syncStatus.layers.history.recentTurnCount >= 0 },
       ]
     : [
         { label: "Soul", healthy: false },
         { label: "Identity", healthy: false },
-        { label: "Mind", healthy: false },
+        { label: "Agent", healthy: false },
         { label: "History", healthy: false },
       ];
 
@@ -257,7 +263,7 @@ export function AgentChatStarter() {
             <p className="text-muted leading-tight">{profile.communicationStyle}</p>
           </div>
           <div>
-            <span className="font-semibold block mb-1">Mind Model:</span>
+            <span className="font-semibold block mb-1">Agent Model:</span>
             <p className="text-muted leading-tight">{profile.mindModel}</p>
           </div>
           <div>
@@ -276,10 +282,33 @@ export function AgentChatStarter() {
                   showToolUse ? "bg-cyan-600 text-white" : "bg-white/50 text-muted border border-white/60 hover:bg-white"
                 }`}
               >
-                {showToolUse ? "Hide Logs" : "Show Logs"}
+                {showToolUse ? "Hide Active Logs" : "Show Active Logs"}
               </button>
             </div>
             <p className="mt-1 text-[10px] text-muted leading-tight italic">Expose technical tool results and orchestrator calls.</p>
+            {showToolUse && (() => {
+              const allLogs = messages.flatMap((m: any) => m.toolLogs || []);
+              if (allLogs.length === 0) return <p className="mt-2 text-[10px] text-muted">No tool calls yet this session.</p>;
+              return (
+                <div className="mt-2 space-y-1.5 max-h-[200px] overflow-y-auto custom-scrollbar">
+                  {allLogs.map((log: any, i: number) => (
+                    <div key={i} className={`rounded p-1.5 border ${
+                      (typeof log.result === 'string' && (log.result.includes('Error') || log.result.includes('error') || log.result.includes('failed') || log.result.includes('"status":"error"')))
+                        ? 'bg-red-50/50 border-red-200/40' : 'bg-green-50/50 border-green-200/40'
+                    }`}>
+                      <p className="font-bold text-[10px]">
+                        <span className={
+                          (typeof log.result === 'string' && (log.result.includes('Error') || log.result.includes('error') || log.result.includes('failed') || log.result.includes('"status":"error"')))
+                            ? 'text-red-600' : 'text-green-600'
+                        }>●</span>{' '}
+                        {log.tool}
+                      </p>
+                      <p className="text-[9px] text-muted truncate">{JSON.stringify(log.parameters).slice(0, 80)}</p>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="rounded-xl border border-white/60 bg-white/75 p-3 text-xs">
@@ -363,7 +392,14 @@ export function AgentChatStarter() {
                       : "border border-white/60 bg-white/90"
                   }`}
                 >
-                  {message.content}
+                  {/* Bug 9: Render markdown in assistant responses */}
+                  {message.role === "ASSISTANT" ? (
+                    <div className="prose prose-sm max-w-none prose-headings:font-bold prose-strong:font-bold prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    message.content
+                  )}
                 </div>
               </div>
             ))}

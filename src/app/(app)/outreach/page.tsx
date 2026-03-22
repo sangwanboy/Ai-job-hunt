@@ -18,16 +18,28 @@ type DraftItem = {
   body: string;
 };
 
+/* Bug 11: Detail data for recruiter drawer */
+type RecruiterDetail = {
+  recruiter: string;
+  channel: string;
+  tone: string;
+  status: string;
+  eta: string;
+};
+
 export default function OutreachPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [showDrafts, setShowDrafts] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [selectedRecruiter, setSelectedRecruiter] = useState<RecruiterDetail | null>(null);
+  /* Bug 12: Track bonus queued items dynamically */
+  const [bonusQueued, setBonusQueued] = useState(0);
 
   const queuedCount = useMemo(
-    () => campaignRows.filter((row) => row.status === "Queued" || row.status === "Draft").length,
-    [],
+    () => campaignRows.filter((row) => row.status === "Queued" || row.status === "Draft").length + bonusQueued,
+    [bonusQueued],
   );
 
   async function generateDraftBatch() {
@@ -135,7 +147,11 @@ export default function OutreachPage() {
               </thead>
               <tbody>
                 {campaignRows.map((row) => (
-                  <tr key={`${row.recruiter}-${row.channel}`} className="border-t border-white/60">
+                  <tr
+                    key={`${row.recruiter}-${row.channel}`}
+                    className="border-t border-white/60 cursor-pointer hover:bg-cyan-50/40 transition-colors"
+                    onClick={() => setSelectedRecruiter(row)}
+                  >
                     <td className="px-4 py-3 font-semibold">{row.recruiter}</td>
                     <td className="px-4 py-3">{row.channel}</td>
                     <td className="px-4 py-3">{row.tone}</td>
@@ -152,6 +168,47 @@ export default function OutreachPage() {
           </div>
         </section>
       </div>
+
+      {/* Bug 11: Recruiter detail drawer */}
+      {selectedRecruiter && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm" onClick={() => setSelectedRecruiter(null)}>
+          <div
+            className="h-full w-full max-w-md overflow-y-auto bg-white/95 p-6 shadow-2xl backdrop-blur-xl border-l border-white/60"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-xl font-extrabold">{selectedRecruiter.recruiter}</h3>
+                <p className="text-sm text-muted mt-1">{selectedRecruiter.channel} · {selectedRecruiter.tone}</p>
+              </div>
+              <button onClick={() => setSelectedRecruiter(null)} className="btn-secondary px-3 py-1 text-xs">Close</button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Status</p>
+                <span className="badge">{selectedRecruiter.status}</span>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">ETA</p>
+                <p className="text-muted">{selectedRecruiter.eta}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Message History</p>
+                <p className="text-muted italic">No messages sent yet.</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Notes</p>
+                <textarea
+                  placeholder="Add notes about this recruiter..."
+                  rows={4}
+                  className="field w-full mt-2"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDrafts ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
@@ -182,8 +239,10 @@ export default function OutreachPage() {
                       }}>
                         Edit
                       </button>
+                      {/* Bug 12: Increment queued count when approving */}
                       <button className="btn-primary" onClick={() => {
                         setToast({ message: `Approved & queued ${draft.recruiterName}.`, type: "success" });
+                        setBonusQueued((prev) => prev + 1);
                         setDrafts(prev => prev.filter((_, i) => i !== index));
                         if (drafts.length === 1) setShowDrafts(false);
                       }}>

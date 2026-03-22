@@ -51,9 +51,9 @@ const fallbackOutreach: OutreachPoint[] = [
 const sourceColors = ["#0891b2", "#14b8a6", "#f59e0b", "#8b5cf6"];
 
 export default function AnalyticsPage() {
-  const [funnel, setFunnel] = useState<FunnelPoint[]>([]);
-  const [sources, setSources] = useState<SourcePoint[]>([]);
-  const [outreach, setOutreach] = useState<OutreachPoint[]>([]);
+  const [funnel, setFunnel] = useState<FunnelPoint[]>(fallbackFunnel);
+  const [sources, setSources] = useState<SourcePoint[]>(fallbackSources);
+  const [outreach, setOutreach] = useState<OutreachPoint[]>(fallbackOutreach);
   const [runtime, setRuntime] = useState<RuntimeSettingsResponse | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 

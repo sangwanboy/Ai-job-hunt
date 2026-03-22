@@ -37,11 +37,28 @@ npm run prisma:migrate -- --name init
 npm run prisma:seed
 ```
 
-5. Start dev server:
+5. Start standalone browser service (Required for job discovery):
+
+```bash
+npm run browser-server
+```
+
+6. Start dev server:
 
 ```bash
 npm run dev
 ```
+
+## Architecture: Local Resilience Mode
+
+This platform is designed to be operational even without a live PostgreSQL or Redis instance.
+- **JSON Fallback**: If the database is unavailable, the system automatically falls back to local JSON persistence in the `project_memory/` directory.
+- **Jobs Cache**: `project_memory/local_jobs.json`
+- **Sessions Store**: `project_memory/local_sessions.json`
+
+## Standalone Browser Service
+
+All job discovery and intelligence gathering is performed via a dedicated browser automation service (running on Port 3001). This service must be running for the agent to perform web-based tasks.
 
 ## Initial Routes
 

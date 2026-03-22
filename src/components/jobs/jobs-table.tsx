@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   type SortingState,
+  type VisibilityState,
   createColumnHelper,
   flexRender,
   getCoreRowModel,
@@ -11,26 +12,39 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { useSearchParams } from "next/navigation";
 import type { JobRow } from "@/types/domain";
 
 const columnHelper = createColumnHelper<JobRow>();
 
+/* ── persistent cache so back-navigation is instant (Bug 4) ── */
+let cachedJobs: JobRow[] | null = null;
+
 export function JobsTable() {
-  const [rows, setRows] = React.useState<JobRow[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const searchParams = useSearchParams();
+  const qParam = searchParams?.get("q") || "";
+
+  const [rows, setRows] = React.useState<JobRow[]>(cachedJobs ?? []);
+  const [isLoading, setIsLoading] = React.useState(cachedJobs === null);
   const [isSearching, setIsSearching] = React.useState(false);
   const [syncMessage, setSyncMessage] = React.useState<string>("");
-  const [keywords, setKeywords] = React.useState("software engineer");
+  const [keywords, setKeywords] = React.useState(qParam || "software engineer");
   const [location, setLocation] = React.useState("london");
-  const [globalFilter, setGlobalFilter] = React.useState("");
+  const [globalFilter, setGlobalFilter] = React.useState(qParam);
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "score", desc: true }]);
+  const [selectedJob, setSelectedJob] = React.useState<JobRow | null>(null);
+
+  /* Hide the hidden company column (Bug 13) */
+  const [columnVisibility] = React.useState<VisibilityState>({ company: false });
 
   const refreshJobs = React.useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await fetch("/api/jobs", { cache: "no-store" });
       const payload = (await response.json()) as { jobs?: JobRow[]; error?: string };
-      setRows(payload.jobs ?? []);
+      const jobs = payload.jobs ?? [];
+      setRows(jobs);
+      cachedJobs = jobs;
       setSyncMessage(payload.error ? payload.error : "");
     } catch {
       setSyncMessage("Unable to load jobs right now.");
@@ -42,6 +56,14 @@ export function JobsTable() {
   React.useEffect(() => {
     void refreshJobs();
   }, [refreshJobs]);
+
+  /* Bug 8: read ?q= from URL and apply to filter + keywords */
+  React.useEffect(() => {
+    if (qParam) {
+      setGlobalFilter(qParam);
+      setKeywords(qParam);
+    }
+  }, [qParam]);
 
   const setStatus = React.useCallback(async (jobId: string, status: any) => {
     try {
@@ -72,9 +94,9 @@ export function JobsTable() {
           </div>
         ),
       }),
+      /* Bug 13: Give company column a proper header label, hide via column visibility */
       columnHelper.accessor("company", {
-        header: () => null,
-        cell: () => null,
+        header: "Company",
         enableGlobalFilter: true,
       }),
       columnHelper.accessor("location", {
@@ -106,26 +128,23 @@ export function JobsTable() {
         header: "Actions",
         cell: (info) => (
           <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn-secondary px-3 py-1"
-              onClick={() => {
-                void setStatus(info.row.original.id, "APPLIED");
-                if (info.row.original.sourceUrl) {
-                  window.open(info.row.original.sourceUrl, "_blank", "noopener,noreferrer");
-                }
-              }}
+            {/* Apply: real anchor tag for reliable new-tab behavior */}
+            <a
+              href={info.row.original.sourceUrl || `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(`${info.row.original.title} ${info.row.original.company}`)}&location=${encodeURIComponent(info.row.original.location || '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary px-3 py-1 inline-block text-center no-underline"
+              onMouseDown={() => void setStatus(info.row.original.id, "APPLIED")}
             >
-              Apply
-            </button>
+              Apply ↗
+            </a>
+            {/* Bug 3: Review opens detail panel instead of navigating away */}
             <button
               type="button"
               className="btn-secondary px-3 py-1"
               onClick={() => {
                 void setStatus(info.row.original.id, "SAVED");
-                if (info.row.original.sourceUrl) {
-                  window.open(info.row.original.sourceUrl, "_blank", "noopener,noreferrer");
-                }
+                setSelectedJob(info.row.original);
               }}
             >
               Review
@@ -145,7 +164,7 @@ export function JobsTable() {
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     initialState: { pagination: { pageSize: 20 } },
-    state: { globalFilter, sorting },
+    state: { globalFilter, sorting, columnVisibility },
     onGlobalFilterChange: setGlobalFilter,
     onSortingChange: setSorting,
   });
@@ -218,7 +237,7 @@ export function JobsTable() {
                         type="button"
                         className="inline-flex items-center gap-1"
                         onClick={header.column.getToggleSortingHandler()}
-                        aria-label={`Sort by ${String(header.column.columnDef.header)}`}
+                        aria-label={`Sort by ${header.column.columnDef.header as string}`}
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {header.column.getIsSorted() === "asc" ? (
@@ -260,17 +279,77 @@ export function JobsTable() {
           Showing {start}-{end} of {totalRows} jobs
         </p>
         <div className="flex items-center gap-2">
-          <button className="btn-secondary disabled:opacity-50" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+          <button className="btn-secondary disabled:opacity-50" onClick={() => { setSelectedJob(null); table.previousPage(); }} disabled={!table.getCanPreviousPage()}>
             Previous
           </button>
           <span>
             Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
           </span>
-          <button className="btn-secondary disabled:opacity-50" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <button className="btn-secondary disabled:opacity-50" onClick={() => { setSelectedJob(null); table.nextPage(); }} disabled={!table.getCanNextPage()}>
             Next
           </button>
         </div>
       </div>
+
+      {/* Bug 3: Review detail panel (slide-over drawer) */}
+      {selectedJob && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm" onClick={() => setSelectedJob(null)}>
+          <div
+            className="h-full w-full max-w-lg overflow-y-auto bg-white/95 p-6 shadow-2xl backdrop-blur-xl border-l border-white/60"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-xl font-extrabold">{selectedJob.title}</h3>
+                <p className="text-sm text-muted mt-1">{selectedJob.company}</p>
+              </div>
+              <button onClick={() => setSelectedJob(null)} className="btn-secondary px-3 py-1 text-xs">Close</button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Location</p>
+                <p className="text-muted">{selectedJob.location} · {selectedJob.workMode}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Salary</p>
+                <p className="text-muted">{selectedJob.salaryRange || "Not specified"}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Match Score</p>
+                <p className="text-2xl font-extrabold text-accent">{selectedJob.score}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Status</p>
+                <p className="text-muted">{selectedJob.status}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Priority</p>
+                <p className="text-muted">{selectedJob.priority}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Source</p>
+                <p className="text-muted">{selectedJob.source}</p>
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/80 p-4">
+                <p className="font-semibold mb-1">Posted</p>
+                <p className="text-muted">{selectedJob.postedAt}</p>
+              </div>
+
+              {selectedJob.sourceUrl && (
+                <a
+                  href={selectedJob.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary block text-center mt-4"
+                >
+                  View Original Listing ↗
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

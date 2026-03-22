@@ -61,8 +61,8 @@ export async function GET(request: Request) {
         strengths: state.identity.strengths,
         weaknesses: state.identity.weaknesses,
       },
-      mind: {
-        currentTaskState: state.mind.currentTaskState,
+      agent: {
+        mode: state.mind.mode,
         reasoningMode: state.mind.reasoningMode,
         loopPreventionState: state.mind.loopPreventionState,
         currentStrategy: state.mind.currentStrategy,

@@ -101,6 +101,16 @@ export async function POST(request: Request) {
     const body = (await request.json()) as unknown;
     const payload = createJobSchema.parse(body);
 
+    // Validate: reject titles that look like chat messages (contain question marks, very long, or obviously not job titles)
+    const junkPatterns = [
+      /\?.*\?/,                    // Multiple question marks
+      /^(status|do i|what|how|when|where|why|can you|please|help)/i,  // Chat-like starts
+      /at \d+$/,                   // "...at 7", "...at 8" (pagination artifacts)
+    ];
+    if (junkPatterns.some(p => p.test(payload.title)) || payload.title.length > 150) {
+      return NextResponse.json({ error: "Title appears to be a chat message, not a job title. Rejected." }, { status: 400 });
+    }
+
     try {
       const user = await ensureLocalDevUser();
       const company = await ensureCompany(payload.company);
@@ -164,6 +174,40 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create job";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const jobId = searchParams.get("id");
+    const cleanJunk = searchParams.get("cleanJunk");
+
+    if (cleanJunk === "true") {
+      // Clean up junk entries that look like chat messages
+      const deleted = await prisma.job.deleteMany({
+        where: {
+          OR: [
+            { title: { contains: "?" } },
+            { title: { contains: "status" } },
+            { title: { startsWith: "do i" } },
+            { title: { startsWith: "what" } },
+            { title: { startsWith: "how" } },
+          ],
+        },
+      });
+      return NextResponse.json({ success: true, deletedCount: deleted.count });
+    }
+
+    if (!jobId) {
+      return NextResponse.json({ error: "Missing job id" }, { status: 400 });
+    }
+
+    await prisma.job.delete({ where: { id: jobId } });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete job";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

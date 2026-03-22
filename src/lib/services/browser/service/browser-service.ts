@@ -371,7 +371,26 @@ export class BrowserService {
     sessionId: string,
     operation: (snapshot: BrowserSessionSnapshot) => Promise<TData>,
   ): Promise<BrowserActionResult<TData>> {
-    const snapshot = this.sessionManager.incrementAction(sessionId);
+    let snapshot: BrowserSessionSnapshot;
+    try {
+      snapshot = this.sessionManager.incrementAction(sessionId);
+    } catch (error) {
+      // Auto-create session if it doesn't exist (so browser_navigate works without prior create_session)
+      const parsed = toBrowserServiceError(error);
+      if (parsed.code === "SESSION_NOT_FOUND" || parsed.code === "BROWSER_NOT_READY") {
+        console.log(`[BrowserService] Auto-creating session "${sessionId}" for tool ${tool}`);
+        await this.ensureBrowserReady();
+        const context = await this.getBrowser().newContext();
+        this.sessionManager.createSession({
+          sessionId,
+          context,
+          maxActions: this.config.maxActionsPerSession,
+        });
+        snapshot = this.sessionManager.incrementAction(sessionId);
+      } else {
+        throw error;
+      }
+    }
     return this.executeAction(tool, sessionId, () => operation(snapshot), snapshot);
   }
 
